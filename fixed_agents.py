@@ -64,13 +64,13 @@ class t4tv(t4t):
 		assert self.P >= 0, "punishment rate must be positive or zero"
 
 
-class test_forgive():
-	# as trustee: greedy on turns 0,1, friendly on turns 2,3,4
-	# as investor: greedy on turns 0,1, friendly on turns 2,3,4 IF trustee is generous on turns 1,2,3, else greedy
-	def __init__(self, player, ID="test_forgive"):
+class adaptive():
+	def __init__(self, player, ID, thr_trustee=0.5, thr_investor=1.0):
 		self.player = player
 		self.ID = ID
 		self.state = 0
+		self.thr_trustee = thr_trustee
+		self.thr_investor = thr_investor
 
 	def new_game(self):
 		self.state = 0
@@ -84,17 +84,51 @@ class test_forgive():
 		return give, keep
 
 	def update_state(self, game):
-		if self.player == 'investor':
-			if len(game.investor_give) < 2:
-				self.state = 0.5
-			elif len(game.investor_give) >= 2:
-				if game.trustee_gen[-1] < 0.5:
-					self.state -= 0.4
-				else:
-					self.state += 0.5
-			self.state = np.clip(self.state, 0.1, 1)
-		elif self.player == 'trustee':
-			self.state = 0 if len(game.investor_give) <= 2 else 0.5  
+		if self.ID == "cooperate":
+			if self.player == 'investor':   #  trustee should learn to cooperate on turn 1-5
+				self.state = 1 if (len(game.investor_gen)==0 or game.trustee_gen[-1]>=self.thr_trustee) else 0
+			elif self.player == 'trustee':
+				self.state = 0.5  #  investor should learn to cooperate on turn 1-5
+		if self.ID == "defect":
+			if self.player == 'investor':
+				self.state = 1   #  trustee should learn to defect on turn 1-5
+			elif self.player == 'trustee':
+				if len(game.investor_gen)==1: self.state = 0.5  # investor should learn to cooperate turn 1
+				if len(game.investor_gen)==2: self.state = 0.5  # investor should learn to cooperate turn 2
+				if len(game.investor_gen)==3: self.state = 0.5  # investor should learn to cooperate turn 3
+				if len(game.investor_gen)==4: self.state = 0  # investor should learn to defect turn 4
+				if len(game.investor_gen)==5: self.state = 0  # investor should learn attrition turn 5
+		if self.ID == "gift":
+			if self.player == 'investor':
+				if len(game.investor_gen)==0: self.state = 0.3  # agent begins with a small investment
+				if len(game.investor_gen)==1 and game.trustee_gen[-1]>=self.thr_trustee: self.state += 0.3  # trustee should learn to offer gift turn 1
+				if len(game.investor_gen)==2 and game.trustee_gen[-1]>=self.thr_trustee: self.state += 0.4  # trustee should learn to offer gift turn 2
+				if len(game.investor_gen)==3: pass  # trustee should defect turn 3
+				if len(game.investor_gen)==4: pass  # trustee should defect turn 4
+			elif self.player == 'trustee':
+				if len(game.investor_gen)==1: self.state = 0  # trustee should learn to offer nothing turn 1
+				if len(game.investor_gen)==2 and game.investor_gen[-1]>=self.thr_trustee: self.state += 0.45  # trustee should learn to offer gift turn 2
+				if len(game.investor_gen)==3 and game.investor_gen[-1]>=self.thr_trustee: self.state += 0.55  # trustee should learn to offer gift turn 3
+				if len(game.investor_gen)==4: pass  # trustee should cooperate turn 4
+				if len(game.investor_gen)==5: pass  # trustee should cooperate turn 5
+		if self.ID == "attrition":
+			if self.player == 'investor':
+				self.state = 0.9
+			elif self.player == 'trustee':
+				self.state = 0
+		if self.ID == "turn_based":
+			if self.player == 'investor':
+				if len(game.investor_gen)==0: self.state = 1
+				if len(game.investor_gen)==1: self.state = 1  # trustee should learn to be greedy turn 1
+				if len(game.investor_gen)==2 and game.trustee_gen[-1]<self.thr_trustee: self.state = 0.1  # trustee should learn to be generous turn 2
+				if len(game.investor_gen)==3 and game.trustee_gen[-1]<self.thr_trustee: self.state = 0.1  # trustee should learn to be generous turn 3
+				if len(game.investor_gen)==4: self.state = 1  # trustee should learn to be greedy turn 4 and 5
+			elif self.player == 'trustee':
+				if len(game.investor_gen)==1: self.state = 0.5  # investor should learn to be generous turn 1
+				if len(game.investor_gen)==2: self.state = 0  # investor should learn to be greedy turn 2
+				if len(game.investor_gen)==3: self.state = 0.5  # investor should learn to be generous turn 3
+				if len(game.investor_gen)==4: self.state = 0  # investor should learn to be greedy turn 4
+				if len(game.investor_gen)==5: self.state = 0.5  # investor should learn be generous turn 5	
 
 	def learn(self, game):
 		pass

@@ -52,37 +52,32 @@ def process_data(raw, agents):
 	metrics = (  			# analysis of each individual agent
 		'agent',  			# agent ID 
 		'player',  			# player 
-		'mean',  		  	# mean gen/score on test games
-		'std', 		  		# standard deviation of gen/score dist. on test games
+		'mean',  		  	# mean gen/score on test set
+		'std', 		  		# standard deviation of gen/score dist. on test set
 		# 'entropy',  	  	# entropy of gen/score dist. on test game
-		'skew',  		  	# skewness of gen/score dist., indicates deviation from normal dist on test games
-		'kurtosis',  	  	# kurtosis of gen/score dist., indicates outliers in data (esp tails) on test games
-		# 'normality',	  	# test whether gen/score dist. differs from a normal dist. on test games
-		'adapt',  			# changes in gen/score between consecutive turns on test games,
-							# mean of KL divergence(1,2),(2,3)(3,4)(4,5)
-					   		# ideal conditions: no game-to-game variance
-					   		# changes will reflect turn-to-turn progression and responses to opponent behavior
-		'learn',	  		# changes in gen/score between initial and final games during training:
+		'skew',  		  	# skewness of gen/score dist., indicates deviation from normal dist on test set
+		'kurtosis',  	  	# kurtosis of gen/score dist., indicates outliers in data (esp tails) on test set
+		# 'normality',	  	# test whether gen/score dist. differs from a normal dist. on test set
+		'learn',	  		# changes in gen/score between initial and final games on training set:
 							# KL divergence(all initial moves, all final moves)
 					 		# averages over turn-to-turn variance
-		'speed',  			# number of iterations before learning is complete during training
+		'speed',  			# number of iterations before learning is complete on training set
 							# find earliest iteration when gen/score dist. is indistinguishable from final gen/score dist. 
-		'punish', 			# change in gen following a pair of turns when an opponent became more greedy in test games
-							# find turns when opponent became more greedy, find learner's delta gen, average across all pairs
-		'forgive', 			# change in gen following a pair of turns when an opponent became more generous in test games
-							# find turns when opponent became more generous, find learner's delta gen, average across all pairs
-		'gift',				# probability of increasing generosity following an opponent's greedy or NaN move in test games
-		'defect',			# probability of decreasing generosity following an opponent's generous move in test games
-		# 'trustee_end'		# mean generosity on the last turn when playing the trustee
+		'adapt',  			# changes in gen/score between consecutive turns on test set,
+							# mean of differences betwee gen/score now and gen/score next turn
+					   		# ideal conditions: no game-to-game variance
+					   		# changes will reflect turn-to-turn progression and responses to opponent behavior
+		'cooperate',  		# probability of reciprocating a generous move, averaged across turns and games on test set
+							# cooperation defined as the learner moving with gen above threshold after opponent moves with gen above threshold
+		'defect',  			# probability of defecting on opponent, averaged across turns and games on test set
+							# defect defined as learner moving with gen below threshold after opponent moves with gen above threshold
+		'gift',  			# probability of offering a gift to the opponent, averaged across turns and games on test set
+							# gifting defined as the learner moving with gen above threshold after opponent moves with gen below threshold 
+		'attrition',  		# probability of reciprocating a greedy move, averaged across turns and games on test set
+							# attrition defined as learner moving with gen below threshold after opponent moves with gen below threshold
 		)
 
 	metrics_score = ('agent', 'player', 'mean', 'std', 'skew', 'kurtosis', 'adapt')
-
-	def get_variance(arr):
-		if np.mean(arr)==0:
-			return 0
-		else:
-			return np.max([np.abs(item-np.mean(arr))/np.mean(arr) for item in arr])
 
 	def distribution_distance(a,b,var):
 		# turn arrays of generosities / scores into histograms
@@ -94,17 +89,14 @@ def process_data(raw, agents):
 		else:
 			return 0.5*np.sum(np.square(A-B)/np.sum([A,B]))
 
-	def get_adaptivity(data, var):
-		dist0 = np.array(data.query('turn==0')[var])
-		dist1 = np.array(data.query('turn==1')[var])
-		dist2 = np.array(data.query('turn==2')[var])
-		dist3 = np.array(data.query('turn==3')[var])
-		dist4 = np.array(data.query('turn==4')[var])
-		delta01 = distribution_distance(dist0, dist1, var)
-		delta12 = distribution_distance(dist1, dist2, var)
-		delta23 = distribution_distance(dist2, dist3, var)
-		delta34 = distribution_distance(dist3, dist4, var)
-		deltas = [delta01, delta12, delta23, delta34]
+	def get_adaptivity(data, var, turns):
+		deltas = []
+		for g in np.array(data['game'].unique()):
+			for t in range(turns-1):
+				t_next=t+1
+				var0 = data.query('game==@g & turn==@t')[var].to_numpy()[0]
+				var1 = data.query('game==@g & turn==@t_next')[var].to_numpy()[0]
+				deltas.append(np.abs(var1-var0))
 		return np.mean(deltas)
 
 	def get_learning(data, initial_games, final_games):
@@ -122,139 +114,39 @@ def process_data(raw, agents):
 		# find the game past which all generosity distributions resemble the final generosity distribution
 		for g in range(len(similarities)-1):
 			if np.all(np.array(similarities)[g:]>thr):
-				return g
+				return g/games  # normalize 0-1
 		return 0  # if this criteria is never met, return zero
 
-	def get_punishment(raw, ID, player, turns):
+	def get_probabilities(raw, ID, player, turns, thr_investor=1, thr_trustee=0.5):
 		data = raw.query('phase=="test"')
-		deltas = []
-		for g in np.array(data['game'].unique()):
-			game = data.query('game==@g')
-			for t in range(turns-2):
-				t_next = t+1
-				t_next2 = t+2
-				if player=='investor':
-					opponent_gen_now = game.query('turn==@t & player=="trustee" & opponent_ID==@ID')['generosity'].to_numpy()[0]
-					opponent_gen_next = game.query('turn==@t_next & player=="trustee" & opponent_ID==@ID')['generosity'].to_numpy()[0]
-					if np.isnan(opponent_gen_now) or np.isnan(opponent_gen_next): continue
-					if opponent_gen_next<opponent_gen_now:
-						my_gen_before = game.query('turn==@t_next & player=="investor" & ID==@ID')['generosity'].to_numpy()[0]
-						my_gen_after = game.query('turn==@t_next2 & player=="investor" & ID==@ID')['generosity'].to_numpy()[0]
-						deltas.append(my_gen_after-my_gen_before)
-				else:
-					opponent_gen_now = game.query('turn==@t & player=="investor" & opponent_ID==@ID')['generosity'].to_numpy()[0]
-					opponent_gen_next = game.query('turn==@t_next & player=="investor" & opponent_ID==@ID')['generosity'].to_numpy()[0]
-					if opponent_gen_next<opponent_gen_now:
-						my_gen_before = game.query('turn==@t & player=="trustee" & ID==@ID')['generosity'].to_numpy()[0]
-						my_gen_after = game.query('turn==@t_next & player=="trustee" & ID==@ID')['generosity'].to_numpy()[0]
-						deltas.append(my_gen_after-my_gen_before)
-		# print('punishment', deltas)
-		return np.mean(deltas) if len(deltas)>0 else None
-
-	def get_forgiveness(raw, ID, player, turns):
-		data = raw.query('phase=="test"')
-		deltas = []
-		for g in np.array(data['game'].unique()):
-			game = data.query('game==@g')
-			t_max = turns-2 if player=='investor' else turns-1
-			for t in range(t_max):
-				t_next = t+1
-				if player=='investor':
-					t_next2 = t+2
-					opponent_gen_now = game.query('turn==@t & player=="trustee" & opponent_ID==@ID')['generosity'].to_numpy()[0]
-					opponent_gen_next = game.query('turn==@t_next & player=="trustee" & opponent_ID==@ID')['generosity'].to_numpy()[0]
-					# if np.isnan(opponent_gen_now) or np.isnan(opponent_gen_next): continue
-					# code NaN generosity (trustee had 0 coins to give) as zero generosity
-					if np.isnan(opponent_gen_now): opponent_gen_now=0
-					if np.isnan(opponent_gen_next): opponent_gen_next=0
-					# if opponent_gen_next>opponent_gen_now:
-					if opponent_gen_next-opponent_gen_now>0.2:  # stronger constraint on increased generosity
-						my_gen_before = game.query('turn==@t_next & player=="investor" & ID==@ID')['generosity'].to_numpy()[0]
-						my_gen_after = game.query('turn==@t_next2 & player=="investor" & ID==@ID')['generosity'].to_numpy()[0]
-						deltas.append(my_gen_after-my_gen_before)
-				else:
-					opponent_gen_now = game.query('turn==@t & player=="investor" & opponent_ID==@ID')['generosity'].to_numpy()[0]
-					opponent_gen_next = game.query('turn==@t_next & player=="investor" & opponent_ID==@ID')['generosity'].to_numpy()[0]
-					# if opponent_gen_next>opponent_gen_now:
-					if opponent_gen_next-opponent_gen_now>0.2:  # stronger constraint on increased generosity
-						my_gen_before = game.query('turn==@t & player=="trustee" & ID==@ID')['generosity'].to_numpy()[0]
-						my_gen_after = game.query('turn==@t_next & player=="trustee" & ID==@ID')['generosity'].to_numpy()[0]
-						deltas.append(my_gen_after-my_gen_before)
-					print(t)
-					print('investor', game.query('turn==@t & player=="investor" & opponent_ID==@ID')['generosity'].to_numpy()[0])
-					print('trustee', game.query('turn==@t & player=="trustee" & ID==@ID')['generosity'].to_numpy()[0])
-		print('forgiveness', deltas)
-		return np.mean(deltas) if len(deltas)>0 else None
-
-	def get_gift(raw, ID, player, turns, thr_investor=1, thr_trustee=0.5):
-		data = raw.query('phase=="test"')
-		increases = 0
-		sames = 0
-		decreases = 0
+		cooperates = 0
+		defects = 0
+		gifts = 0
+		attritions = 0
 		for g in np.array(data['game'].unique()):
 			game = data.query('game==@g')
 			for t in range(turns-1):
-				t1 = t+1
 				if player=='investor':
-					opponent_gen = np.array(game.query('turn==@t & player=="trustee" & opponent_ID==@ID')['generosity'])
-					if not np.isnan(opponent_gen) and opponent_gen<thr_trustee:
-						my_gen_before = np.array(game.query('turn==@t & player=="investor" & ID==@ID')['generosity'])
-						my_gen_after = np.array(game.query('turn==@t1 & player=="investor" & ID==@ID')['generosity'])
-						delta = my_gen_after-my_gen_before
-						if delta>0: increases += 1
-						if delta==0: sames += 1
-						if delta<0: decreases += 1
+					opponent_gen = game.query('turn==@t & player=="trustee" & opponent_ID==@ID')['generosity'].to_numpy()[0]
+					learner_gen = game.query('turn==@t & player=="investor" & ID==@ID')['generosity'].to_numpy()[0]
+					if np.isnan(opponent_gen) or np.isnan(learner_gen): continue
+					elif opponent_gen>=thr_trustee and learner_gen>=thr_investor: cooperates += 1
+					elif opponent_gen>=thr_trustee and learner_gen<thr_investor: defects += 1
+					elif opponent_gen<thr_trustee and learner_gen>=thr_investor: gifts += 1
+					elif opponent_gen<thr_trustee and learner_gen<thr_investor: attritions += 1
 				else:
-					opponent_gen = np.array(game.query('turn==@t & player=="investor" & opponent_ID==@ID')['generosity'])
-					if opponent_gen<thr_investor:
-						my_gen_before = np.array(game.query('turn==@t & player=="trustee" & ID==@ID')['generosity'])
-						my_gen_after = np.array(game.query('turn==@t1 & player=="trustee" & ID==@ID')['generosity'])
-						delta = my_gen_after-my_gen_before
-						if delta>0: increases += 1
-						if delta==0: sames += 1
-						if delta<0: decreases += 1
-		# print('gift', increases, decreases, sames)
-		return increases / (increases+sames+decreases) if (increases+sames+decreases)>0 else None
-
-	def get_defection(raw, ID, player, turns, thr_investor=1, thr_trustee=0.5):
-		data = raw.query('phase=="test"')
-		increases = 0
-		sames = 0
-		decreases = 0
-		for g in np.array(data['game'].unique()):
-			game = data.query('game==@g')
-			for t in range(turns-1):
-				t1 = t+1
-				if player=='investor':
-					opponent_gen = np.array(game.query('turn==@t & player=="trustee" & opponent_ID==@ID')['generosity'])
-					if not np.isnan(opponent_gen) and opponent_gen>=thr_trustee:
-						my_gen_before = np.array(game.query('turn==@t & player=="investor" & ID==@ID')['generosity'])
-						my_gen_after = np.array(game.query('turn==@t1 & player=="investor" & ID==@ID')['generosity'])
-						delta = my_gen_after-my_gen_before
-						if delta>0: increases += 1
-						if delta==0: sames += 1
-						if delta<0: decreases += 1
-				else:
-					opponent_gen = np.array(game.query('turn==@t & player=="investor" & opponent_ID==@ID')['generosity'])
-					if opponent_gen>=thr_investor:
-						my_gen_before = np.array(game.query('turn==@t & player=="trustee" & ID==@ID')['generosity'])
-						my_gen_after = np.array(game.query('turn==@t1 & player=="trustee" & ID==@ID')['generosity'])
-						delta = my_gen_after-my_gen_before
-						if delta>0: increases += 1
-						if delta==0: sames += 1
-						if delta<0: decreases += 1
-		# print('defections', increases, decreases, sames)
-		return decreases / (increases+sames+decreases) if (increases+sames+decreases)>0 else None
-
-	def get_trustee_end(raw, ID, player, turns):
-		if player=='investor':
-			return np.nan
-		else:
-			gens = []
-			data = raw.query('phase=="test"')
-			for g in np.array(data['game'].unique()):
-				gens.append(data.query('game==@g & turn==@turns'))
-			return np.mean(gens)
+					opponent_gen = game.query('turn==@t & player=="investor" & opponent_ID==@ID')['generosity'].to_numpy()[0]
+					learner_gen = game.query('turn==@t & player=="trustee" & ID==@ID')['generosity'].to_numpy()[0]
+					if np.isnan(opponent_gen) or np.isnan(learner_gen): continue
+					elif opponent_gen>=thr_investor and learner_gen>=thr_trustee: cooperates += 1
+					elif opponent_gen>=thr_investor and learner_gen<thr_trustee: defects += 1
+					elif opponent_gen<thr_investor and learner_gen>=thr_trustee: gifts += 1
+					elif opponent_gen<thr_investor and learner_gen<thr_trustee: attritions += 1
+		p_cooperate = cooperates / (cooperates+defects) if cooperates+defects>0 else None
+		p_defect = defects / (cooperates+defects) if cooperates+defects>0 else None
+		p_gift = gifts / (gifts+attritions) if gifts+attritions>0 else None
+		p_attrition = attritions / (gifts+attritions) if gifts+attritions>0 else None
+		return p_cooperate, p_defect, p_gift, p_attrition
 
 	turns = np.max(raw['turn'])+1
 	games = np.max(raw['game'])+1
@@ -265,26 +157,18 @@ def process_data(raw, agents):
 	for agent in agents:
 		ID = agent.ID
 		player = agent.player
-		data = raw.query('ID==@ID & player==@player')
+		data_train = raw.query('ID==@ID & player==@player & phase=="train"')
 		data_test = raw.query('ID==@ID & player==@player & phase=="test"')
 		mean = np.mean(data_test['generosity'])
 		std = np.std(data_test['generosity'])
 		ent = entropy(data_test['generosity'])
 		skw = skew(data_test['generosity'])
 		kurt = kurtosis(data_test['generosity'])
-		# normality = normaltest(data_test[var])[1]  # the pvalue for the normaltest
-		adapt = get_adaptivity(data_test, 'generosity')
-		learn = get_learning(data, initial_games, final_games)
-		speed = get_speed(data, games, final_games)
-		punish = get_punishment(raw, ID, player, turns)
-		forgive = get_forgiveness(raw, ID, player, turns)
-		gift = get_gift(raw, ID, player, turns)
-		defect = get_defection(raw, ID, player, turns)
-		# trustee_end = get_trustee_end(raw, ID, player, turns)
-		df = pd.DataFrame([[
-			# ID, player, mean, std, ent, skw, kurt, normality, adapt, learn, speed, punish, forgive, gift, defect, trustee_end
-			ID, player, mean, std, skw, kurt, adapt, learn, speed, punish, forgive, gift, defect,
-			]], columns=metrics)
+		learn = get_learning(data_train, initial_games, final_games)
+		speed = get_speed(data_train, games, final_games)
+		adapt = get_adaptivity(data_test, 'generosity', turns)
+		cooperate, defect, gift, attrition = get_probabilities(raw, ID, player, turns)
+		df = pd.DataFrame([[ID, player, mean, std, skw, kurt, learn, speed, adapt, cooperate, defect, gift, attrition]], columns=metrics)
 		dfs.append(df)
 	data_metrics_gen = pd.concat([df for df in dfs], ignore_index=True)
 
@@ -292,13 +176,14 @@ def process_data(raw, agents):
 	for agent in agents:
 		ID = agent.ID
 		player = agent.player
-		data = raw.query('ID==@ID & player==@player')
-		mean = np.mean(data['coins'])
-		std = np.std(data['coins'])
-		ent = entropy(data['coins'])
-		skw = skew(data['coins'])
-		kurt = kurtosis(data['coins'])
-		adapt = get_adaptivity(data, 'coins')
+		data_train = raw.query('ID==@ID & player==@player & phase=="train"')
+		data_test = raw.query('ID==@ID & player==@player & phase=="test"')
+		mean = np.mean(data_test['coins'])
+		std = np.std(data_test['coins'])
+		ent = entropy(data_test['coins'])
+		skw = skew(data_test['coins'])
+		kurt = kurtosis(data_test['coins'])
+		adapt = get_adaptivity(data_test, 'coins', turns)
 		df = pd.DataFrame([[ID, player, mean, std, skw, kurt, adapt]], columns=metrics_score)
 		dfs.append(df)
 	data_metrics_score = pd.concat([df for df in dfs], ignore_index=True)
