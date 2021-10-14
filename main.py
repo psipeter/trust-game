@@ -13,8 +13,8 @@ learner_plays = 'trustee'
 
 n_learners = 3
 # n_opponents = 200
-n_train = 1000
-n_test = 30
+n_train = 100
+n_test = 10
 
 # investors = [ActorCritic('investor', ID=n, learning_rate=1e-3) for n in range(n_learners)]
 # investors = [t4t(player='investor', O=0.9, P=1)]
@@ -32,4 +32,7 @@ trustees = [ActorCritic('trustee', ID=n, n_actions=31, learning_rate=1e-3) for n
 testers = [adaptive('investor', 'turn_based')]
 # testers = [adaptive('trustee', 'turn_based')]
 
-play_tournament(investors, trustees, testers, tournament_type, learner_plays, n_train, n_test)
+# play_tournament(investors, trustees, testers, tournament_type, learner_plays, n_train, n_test)
+
+
+test_adaptivity(n_learners=10, learning_rate=1e-3, n_train=5000, n_test=100, n_inputs=15, seed=0)

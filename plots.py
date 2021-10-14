@@ -30,10 +30,10 @@ def plot_many_games(data, learner_plays):
 	fig.savefig(f'plots/many_games_learner_plays_{learner_plays}.pdf')
 
 def plot_learning(data, learner_plays, name):
-	if name=='all':
-		data_train = data.query("phase=='train'")
-	else:
-		data_train = data.query("phase=='train' & ID==@name")
+	# if name=='all':
+	data_train = data.query("phase=='train'")
+	# else:
+		# data_train = data.query("phase=='train' & ID==@name")
 	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((6, 2)))
 	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='generosity', bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax)
 	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='coins', bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax2)
@@ -44,13 +44,13 @@ def plot_learning(data, learner_plays, name):
 		ax2.set(ylim=((-1, 31)), yticks=((0,5,10,15,20,25,30)))		
 	plt.tight_layout()
 	sns.despine(top=True, right=True)
-	fig.savefig(f'plots/learning_{learner_plays}_{name}.pdf')
+	fig.savefig(f'plots/{name}_{learner_plays}_learning.pdf')
 
 def plot_policy(data, learner_plays, name):
-	if name=='all':
-		data_test = data.query("phase=='test'")
-	else:
-		data_test = data.query("phase=='test' & ID==@name")
+	# if name=='all':
+	data_test = data.query("phase=='test'")
+	# else:
+		# data_test = data.query("phase=='test' & ID==@name")
 	# dfs = []
 	# columns = ('ID', 'opponent_ID', 'player', 'turn', 'my_generosity', 'opponent_generosity')
 	# for index, row in data_test.iterrows():
@@ -73,7 +73,7 @@ def plot_policy(data, learner_plays, name):
 		ax.set(xlim=((-0.5, 4.5)), xticks=((0,1,2,3,4)), ylim=((-0.1, 1.1)), yticks=((0, 1)))
 		plt.tight_layout()
 		sns.despine(top=True, right=True)
-		fig.savefig(f'plots/turn_policy_{learner_plays}_{name}.pdf')
+		fig.savefig(f'plots/{name}_{learner_plays}_policy.pdf')
 	else:
 		bins = np.arange(0, 1.1, 0.1)
 		fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))
@@ -81,7 +81,7 @@ def plot_policy(data, learner_plays, name):
 		ax.set(xticks=((0, 1)), xlim=((0, 1)), ylim=((0, 1)), yticks=((0, 1)))
 		plt.tight_layout()
 		sns.despine(top=True, right=True)
-		fig.savefig(f'plots/turn_policy_{learner_plays}_{name}.pdf')
+		fig.savefig(f'plots/{name}_{learner_plays}_policy.pdf')
 
 	# try:
 	# 	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))
@@ -99,37 +99,37 @@ def plot_policy(data, learner_plays, name):
 	# 	sns.despine(top=True, right=True)
 	# 	fig.savefig(f'plots/responsiveness_policy_{learner_plays}_{name}.pdf')
 
-def plot_metrics(data_gen, data_score, learner_plays):
+def plot_metrics(data_gen, data_score, learner_plays, name='all'):
 	metrics_gen = data_gen.columns[2:]
 	metrics_score = data_score.columns[2:]
+	metrics_main = ['mean', 'std', 'adapt', 'cooperate', 'defect', 'gift', 'attrition']
+	metrics_etc = ['skew', 'kurtosis', 'learn', 'speed']
 
-	fig, axes = plt.subplots(nrows=1, ncols=len(metrics_gen), figsize=((len(metrics_gen)*2, 2)), sharey=True)
-	axes[0].set(ylim=((0, 1)), yticks=((0, 1)))
-	for i, metric in enumerate(metrics_gen):
-		if metric in ['mean', 'speed', 'adapt', 'cooperate', 'defect', 'gift', 'attrition']:
+	fig, axes = plt.subplots(nrows=1, ncols=len(metrics_main), figsize=((len(metrics_main)*2, 2)), sharey=True)
+	for i, metric in enumerate(metrics_main):
+		if metric in ['mean', 'adapt', 'cooperate', 'defect', 'gift', 'attrition']:
 			sns.histplot(data=data_gen, x=metric, bins=np.arange(0, 1.1, 0.1), stat='probability', ax=axes[i])
 			axes[i].set(title=metric, xlim=((0, 1)), xticks=((0, 0.5, 1)))
 		elif metric in ['std']:
 			sns.histplot(data=data_gen, x=metric, bins=np.arange(0, 0.55, 0.05), stat='probability', ax=axes[i])
 			axes[i].set(title=metric, xlim=((0, 0.5)), xticks=((0, 0.5)))
-		elif metric in ['skew']:
-			sns.histplot(data=data_gen, x=metric, bins=np.arange(-0.4, 0.4, 0.04), stat='probability', ax=axes[i])
-			axes[i].set(title=metric, xlim=((-0.4, 0.4)), xticks=((-0.4, 0, 0.4)))
-		elif metric in ['kurtosis']:
-			sns.histplot(data=data_gen, x=metric, bins=np.arange(-2, 2, 0.2), stat='probability', ax=axes[i])
-			axes[i].set(title=metric, xlim=((-2, 2)), xticks=((-2, 0, 2)))
-		else:
-			sns.histplot(data=data_gen, x=metric, stat='probability', ax=axes[i])
-			axes[i].set(title=metric)
-	fig.savefig(f'plots/generosity_metrics_{learner_plays}.pdf')
+	fig.savefig(f'plots/{name}_{learner_plays}_metrics.pdf')
 
-	fig, axes = plt.subplots(nrows=1, ncols=len(metrics_score), figsize=((len(metrics_score)*2, 2)), sharey=True)
-	axes[0].set(ylim=((0, 1)), yticks=((0, 1)))
-	for i, metric in enumerate(metrics_score):
-		if metric in ['mean', 'adapt']:
-			sns.histplot(data=data_score, x=metric, bins=np.arange(0, 31, 1), stat='probability', ax=axes[i])
-			axes[i].set(title=metric, xticks=((0, 10, 15, 30)), xlim=((0, 30)))
-		else:
-			sns.histplot(data=data_score, x=metric, bins=10, stat='probability', ax=axes[i])
-			axes[i].set(title=metric)
-	fig.savefig(f'plots/score_metrics_{learner_plays}.pdf')
+	# fig, axes = plt.subplots(nrows=1, ncols=len(metrics_etc), figsize=((len(metrics_etc)*2, 2)), sharey=True)
+	# for i, metric in enumerate(metrics_etc):
+	# 	sns.histplot(data=data_gen, x=metric, stat='probability', ax=axes[i])
+	# 	axes[i].set(title=metric)
+	# fig.savefig(f'plots/{name}_{learner_plays}_extra.pdf')
+
+	plt.close('all')
+
+	# fig, axes = plt.subplots(nrows=1, ncols=len(metrics_score), figsize=((len(metrics_score)*2, 2)), sharey=True)
+	# axes[0].set(ylim=((0, 1)), yticks=((0, 1)))
+	# for i, metric in enumerate(metrics_score):
+	# 	if metric in ['mean', 'adapt']:
+	# 		sns.histplot(data=data_score, x=metric, bins=np.arange(0, 31, 1), stat='probability', ax=axes[i])
+	# 		axes[i].set(title=metric, xticks=((0, 10, 15, 30)), xlim=((0, 30)))
+	# 	else:
+	# 		sns.histplot(data=data_score, x=metric, bins=10, stat='probability', ax=axes[i])
+	# 		axes[i].set(title=metric)
+	# fig.savefig(f'plots/score_metrics_{learner_plays}_{name}.pdf')

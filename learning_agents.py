@@ -7,7 +7,7 @@ from tensorflow.math import log
 
 class ActorCritic():
 	# Adapted from https://keras.io/examples/rl/actor_critic_cartpole/
-	def __init__(self, player, seed=0, n_inputs=3, n_actions=11, ID="actor-critic",
+	def __init__(self, player, seed=0, n_inputs=2, n_actions=11, ID="actor-critic",
 			w_self=1, w_other=0, gamma=0.99, n_neurons=300, learning_rate=1e-3):
 		self.player = player
 		self.ID = ID
@@ -61,39 +61,59 @@ class ActorCritic():
 
 	def get_state(self, game):
 		game_state = np.zeros((self.n_inputs))
-		if self.player == 'investor':
+		if self.n_inputs == 1:
 			current_turn = len(game.investor_give)
-			game_state[2] = current_turn/game.turns  # normalize 0-1
-			if current_turn > 0: # second turn and beyond
+			game_state[0] = current_turn/game.turns  # normalize 0-1
+		elif self.n_inputs == 2:
+			if self.player == 'investor':
+				current_turn = len(game.investor_give)
+				game_state[0] = current_turn/game.turns  # normalize 0-1
+				if current_turn > 0: # second turn and beyond
+					game_state[1] = game.trustee_gen[-1]  if not np.isnan(game.trustee_gen[-1]) else -1
+				else:  # first turn
+					game_state[1] = 0
+			elif self.player == 'trustee':
+				current_turn = len(game.investor_give)
+				game_state[0] = current_turn/game.turns  # normalize 0-1
+				game_state[1] = game.investor_gen[-1]
+		elif self.n_inputs == 3:  # [my_gen, opponent_gen, turn]
+			if self.player == 'investor':
+				current_turn = len(game.investor_give)
+				game_state[2] = current_turn/game.turns  # normalize 0-1
+				if current_turn > 0: # second turn and beyond
+					game_state[0] = game.investor_gen[-1]
+					game_state[1] = game.trustee_gen[-1]  if not np.isnan(game.trustee_gen[-1]) else -1
+				else:  # first turn
+					game_state[0] = -1
+					game_state[1] = -1
+			elif self.player == 'trustee':
+				current_turn = len(game.investor_give)
+				game_state[2] = current_turn/game.turns  # normalize 0-1
 				game_state[0] = game.investor_gen[-1]
-				game_state[1] = game.trustee_gen[-1]  if not np.isnan(game.trustee_gen[-1]) else -1
-			else:  # first turn
-				game_state[0] = -1
-				game_state[1] = -1
-		elif self.player == 'trustee':
-			current_turn = len(game.investor_give)
-			game_state[2] = current_turn/game.turns  # normalize 0-1
-			game_state[0] = game.investor_gen[-1]
-			if current_turn > 1:
-				game_state[1] = game.trustee_gen[-1]  if not np.isnan(game.trustee_gen[-1]) else -1
-			else:
-				game_state[1] = -1
+				if current_turn > 1:
+					game_state[1] = game.trustee_gen[-1]  if not np.isnan(game.trustee_gen[-1]) else -1
+				else:
+					game_state[1] = -1
+		if self.n_inputs == 5:
+			if self.player == 'investor': game_state[len(game.investor_give)] = 1
+			if self.player == 'trustee': game_state[len(game.investor_give)-1] = 1
+		if self.n_inputs == 15:
+			current_turn = len(game.investor_give) if self.player=='investor' else len(game.investor_give)-1
+			game_state[current_turn] = 1
+			for t in range(current_turn):  # loop over past history and add to state
+				my_gen_idx = game.turns + t
+				opponent_gen_idx = 2*game.turns + t
+				if self.player == 'investor':
+					game_state[my_gen_idx] = game.investor_gen[t]
+					game_state[opponent_gen_idx] = game.trustee_gen[t] if not np.isnan(game.trustee_gen[t]) else -1
+				elif self.player == 'trustee':
+					game_state[opponent_gen_idx] = game.investor_gen[t]
+					game_state[my_gen_idx] = game.trustee_gen[t] if not np.isnan(game.trustee_gen[t]) else -1
+			# print('investor gen', game.investor_gen)
+			# print('trustee_gen', game.trustee_gen)
+			# print(game_state)
 		return game_state
 
-	# def get_state(self, game):
-	# 	game_state = np.zeros((self.n_inputs))
-	# 	if self.player == 'investor':
-	# 		current_turn = len(game.investor_give)
-	# 		game_state[0] = current_turn
-	# 		if current_turn > 0: # second turn and beyond
-	# 			game_state[1] = game.trustee_gen[-1]  if not np.isnan(game.trustee_gen[-1]) else -1
-	# 		else:  # first turn
-	# 			game_state[1] = 0
-	# 	elif self.player == 'trustee':
-	# 		current_turn = len(game.investor_give)
-	# 		game_state[0] = current_turn
-	# 		game_state[1] = game.investor_gen[-1]
-	# 	return game_state
 
 	def learn(self, game):
 		# Calculate expected value from rewards
