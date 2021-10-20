@@ -1,11 +1,10 @@
 import numpy as np
 import random
 import pandas as pd
-from tensorflow import GradientTape
 from scipy.stats import entropy, skew, kurtosis, normaltest
 
 class Game():
-	def __init__(self, coins=10, match=3, turns=5, tape=GradientTape()):
+	def __init__(self, coins=10, match=3, turns=5):
 		self.coins = coins
 		self.match = match
 		self.turns = turns
@@ -19,7 +18,6 @@ class Game():
 		self.trustee_gen = []
 		self.trustee_reward = []
 		self.trustee_state = []
-		self.tape = tape
 
 def generosity(player, give, keep):
 	return np.NaN if give+keep==0 and player=='trustee' else give/(give+keep)
@@ -29,23 +27,22 @@ def play_game(game, investor, trustee, phase):
 		f"invalid player assignments {investor.player, trustee.player}"
 	investor.new_game()
 	trustee.new_game()
-	with game.tape:
-		for t in range(game.turns):
-			i_give, i_keep = investor.move(game)
-			game.investor_give.append(i_give)
-			game.investor_keep.append(i_keep)
-			game.investor_gen.append(generosity('investor', i_give, i_keep))
-			game.investor_state.append(investor.state)
-			t_give, t_keep = trustee.move(game)
-			game.trustee_give.append(t_give)
-			game.trustee_keep.append(t_keep)
-			game.trustee_gen.append(generosity('trustee', t_give, t_keep))
-			game.trustee_state.append(trustee.state)
-			game.investor_reward.append(i_keep+t_give)
-			game.trustee_reward.append(t_keep)
-		if phase=='train':
-			investor.learn(game)
-			trustee.learn(game)
+	for t in range(game.turns):
+		i_give, i_keep = investor.move(game)
+		game.investor_give.append(i_give)
+		game.investor_keep.append(i_keep)
+		game.investor_gen.append(generosity('investor', i_give, i_keep))
+		game.investor_state.append(investor.state)
+		t_give, t_keep = trustee.move(game)
+		game.trustee_give.append(t_give)
+		game.trustee_keep.append(t_keep)
+		game.trustee_gen.append(generosity('trustee', t_give, t_keep))
+		game.trustee_state.append(trustee.state)
+		game.investor_reward.append(i_keep+t_give)
+		game.trustee_reward.append(t_keep)
+	if phase=='train':
+		investor.learn(game)
+		trustee.learn(game)
 
 def process_data(raw, agents):
 
@@ -54,10 +51,8 @@ def process_data(raw, agents):
 		'player',  			# player 
 		'mean',  		  	# mean gen/score on test set
 		'std', 		  		# standard deviation of gen/score dist. on test set
-		# 'entropy',  	  	# entropy of gen/score dist. on test game
 		'skew',  		  	# skewness of gen/score dist., indicates deviation from normal dist on test set
 		'kurtosis',  	  	# kurtosis of gen/score dist., indicates outliers in data (esp tails) on test set
-		# 'normality',	  	# test whether gen/score dist. differs from a normal dist. on test set
 		'learn',	  		# changes in gen/score between initial and final games on training set:
 							# KL divergence(all initial moves, all final moves)
 					 		# averages over turn-to-turn variance
@@ -161,7 +156,6 @@ def process_data(raw, agents):
 		data_test = raw.query('ID==@ID & player==@player & phase=="test"')
 		mean = np.mean(data_test['generosity'])
 		std = np.std(data_test['generosity'])
-		ent = entropy(data_test['generosity'])
 		skw = skew(data_test['generosity'])
 		kurt = kurtosis(data_test['generosity'])
 		learn = get_learning(data_train, initial_games, final_games)
@@ -180,7 +174,6 @@ def process_data(raw, agents):
 		data_test = raw.query('ID==@ID & player==@player & phase=="test"')
 		mean = np.mean(data_test['coins'])
 		std = np.std(data_test['coins'])
-		ent = entropy(data_test['coins'])
 		skw = skew(data_test['coins'])
 		kurt = kurtosis(data_test['coins'])
 		adapt = get_adaptivity(data_test, 'coins', turns)
@@ -188,8 +181,5 @@ def process_data(raw, agents):
 		dfs.append(df)
 	data_metrics_score = pd.concat([df for df in dfs], ignore_index=True)
 	metrics_score = ('agent', 'player', 'mean', 'std', 'skew', 'kurtosis', 'adapt')
-
-	# print(data_metrics_gen)
-	# print(data_metrics_score)
 
 	return data_metrics_gen, data_metrics_score

@@ -29,28 +29,26 @@ def plot_many_games(data, learner_plays):
 	sns.despine(top=True, right=True)
 	fig.savefig(f'plots/many_games_learner_plays_{learner_plays}.pdf')
 
-def plot_learning(data, learner_plays, name):
-	# if name=='all':
+def plot_learning(data, data_loss, learner_plays, name):
 	data_train = data.query("phase=='train'")
-	# else:
-		# data_train = data.query("phase=='train' & ID==@name")
-	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((6, 2)))
+	fig, (ax, ax2, ax3) = plt.subplots(nrows=1, ncols=3, figsize=((9, 2)))
 	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='generosity', bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax)
 	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='coins', bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax2)
+	sns.lineplot(data=data_loss, x='game', y='critic_loss', ax=ax3)
+	sns.lineplot(data=data_loss, x='game', y='actor_loss', ax=ax3)
 	ax.set(ylim=((-0.1, 1.1)), yticks=((0, 1)))
 	if learner_plays=='investor':
 		ax2.set(ylim=((-1, 16)), yticks=((0,5,10,15)))
 	else:
-		ax2.set(ylim=((-1, 31)), yticks=((0,5,10,15,20,25,30)))		
+		ax2.set(ylim=((-1, 31)), yticks=((0,5,10,15,20,25,30)))	
+	ax3.set(ylabel="Loss")
+	plt.legend(['Critic', 'Actor'])	
 	plt.tight_layout()
 	sns.despine(top=True, right=True)
 	fig.savefig(f'plots/{name}_{learner_plays}_learning.pdf')
 
 def plot_policy(data, learner_plays, name):
-	# if name=='all':
 	data_test = data.query("phase=='test'")
-	# else:
-		# data_test = data.query("phase=='test' & ID==@name")
 	# dfs = []
 	# columns = ('ID', 'opponent_ID', 'player', 'turn', 'my_generosity', 'opponent_generosity')
 	# for index, row in data_test.iterrows():
