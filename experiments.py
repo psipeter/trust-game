@@ -55,17 +55,19 @@ def play_tournament(investors, trustees, testers, tournament_type, learner_plays
 		dfs_loss = []
 		columns_loss = ('ID', 'opponent_ID', 'player', 'game', 'actor_loss', 'critic_loss')
 		if learner_plays=='investor':
-			for i in range(len(investor.actor_losses)):
-				g = investor.actor_losses[i][0]
-				actor_loss = investor.actor_losses[i][1]
-				critic_loss = investor.critic_losses[i][1]
-				dfs_loss.append(pd.DataFrame([[investor.ID, trustee.ID, 'investor', g, actor_loss, critic_loss]], columns=columns_loss))
+			for investor in investors:
+				for i in range(len(investor.actor_losses)):
+					g = investor.actor_losses[i][0]
+					actor_loss = investor.actor_losses[i][1]
+					critic_loss = investor.critic_losses[i][1]
+					dfs_loss.append(pd.DataFrame([[investor.ID, trustee.ID, 'investor', g, actor_loss, critic_loss]], columns=columns_loss))
 		if learner_plays=='trustee':
-			for i in range(len(trustee.actor_losses)):
-				g = trustee.actor_losses[i][0]
-				actor_loss = trustee.actor_losses[i][1]
-				critic_loss = trustee.critic_losses[i][1]
-				dfs_loss.append(pd.DataFrame([[trustee.ID, investor.ID, 'trustee', g, actor_loss, critic_loss]], columns=columns_loss))
+			for trustee in trustees:
+				for i in range(len(trustee.actor_losses)):
+					g = trustee.actor_losses[i][0]
+					actor_loss = trustee.actor_losses[i][1]
+					critic_loss = trustee.critic_losses[i][1]
+					dfs_loss.append(pd.DataFrame([[trustee.ID, investor.ID, 'trustee', g, actor_loss, critic_loss]], columns=columns_loss))
 		data_loss = pd.concat([df for df in dfs_loss], ignore_index=True)
 
 		plot_learning(data, data_loss, learner_plays=learner_plays, name='all')

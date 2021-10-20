@@ -3,7 +3,9 @@ import random
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+palette = sns.color_palette("deep")
 sns.set(context='paper', style='white', font='CMU Serif', rc={'font.size':12, 'mathtext.fontset': 'cm'})
+sns.set_palette(palette)
 
 def plot_one_game(data):
 	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((6, 2)))
@@ -32,19 +34,19 @@ def plot_many_games(data, learner_plays):
 def plot_learning(data, data_loss, learner_plays, name):
 	data_train = data.query("phase=='train'")
 	fig, (ax, ax2, ax3) = plt.subplots(nrows=1, ncols=3, figsize=((9, 2)))
+	ax4 = ax3.twinx()
 	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='generosity', bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax)
 	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='coins', bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax2)
-	sns.lineplot(data=data_loss, x='game', y='critic_loss', ax=ax3)
-	sns.lineplot(data=data_loss, x='game', y='actor_loss', ax=ax3)
+	sns.lineplot(data=data_loss, x='game', y='critic_loss', color=palette[0], ax=ax3)
+	sns.lineplot(data=data_loss, x='game', y='actor_loss', color=palette[1], ax=ax4)
 	ax.set(ylim=((-0.1, 1.1)), yticks=((0, 1)))
 	if learner_plays=='investor':
 		ax2.set(ylim=((-1, 16)), yticks=((0,5,10,15)))
 	else:
 		ax2.set(ylim=((-1, 31)), yticks=((0,5,10,15,20,25,30)))	
-	ax3.set(ylabel="Loss")
-	plt.legend(['Critic', 'Actor'])	
+	ax3.set(ylabel="Critic Loss")
+	ax4.set(ylabel="Actor Loss")
 	plt.tight_layout()
-	sns.despine(top=True, right=True)
 	fig.savefig(f'plots/{name}_{learner_plays}_learning.pdf')
 
 def plot_policy(data, learner_plays, name):

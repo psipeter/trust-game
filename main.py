@@ -11,13 +11,12 @@ tournament_type = "many_learners_one_opponent"
 learner_plays = 'investor'
 # learner_plays = 'trustee'
 
-n_learners = 10
+n_learners = 3
 # n_opponents = 200
-n_train = 100
+n_train = 500
 
-investors = [ActorCritic('investor', ID=n, seed=n) for n in range(n_learners)]
-# investors = [ActorCriticSeperate('investor', ID=n, seed=n) for n in range(n_learners)]
-# investors = [SoftActorCritic('investor', ID=n, seed=n) for n in range(n_learners)]
+# investors = [ActorCritic('investor', ID=n, seed=n) for n in range(n_learners)]
+investors = [SoftActorCritic('investor', ID=n, seed=n) for n in range(n_learners)]
 # investors = [t4t(player='investor', O=0.9, P=1)]
 # investors = [t4tv(player='investor', seed=n, minO=0.8, maxO=1.0, minX=0.5, maxX=0.5, minF=1.0, maxF=1.0, minP=0.1, maxP=0.3) for n in range(n_opponents)]
 # investors = [t4tv(player='investor', seed=n, minO=0.6, maxO=0.8, minX=0.5, maxX=0.5, minF=0.8, maxF=1.0, minP=1.0, maxP=1.0) for n in range(n_opponents)]

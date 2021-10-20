@@ -67,7 +67,6 @@ class ActorCritic():
 
 	def move(self, game):
 		game_state = self.get_state(game)
-		game_state = torch.FloatTensor(game_state)
 		# Predict action probabilities and estimated future rewards from game_state
 		action_probs = self.actor(game_state)
 		critic_value = self.critic(game_state)
@@ -137,7 +136,7 @@ class ActorCritic():
 				elif self.player == 'trustee':
 					game_state[opponent_gen_idx] = game.investor_gen[t]
 					game_state[my_gen_idx] = game.trustee_gen[t] if not np.isnan(game.trustee_gen[t]) else -1
-		return game_state
+		return torch.FloatTensor(game_state)
 
 
 	def learn(self, game):
@@ -184,73 +183,82 @@ class ActorCritic():
 
 
 class SoftActorCritic():
-	# Adapted from https://keras.io/examples/rl/actor_critic_cartpole/
+
+	class Actor(torch.nn.Module):
+		def __init__(self, n_neurons, n_inputs, n_outputs):
+			torch.nn.Module.__init__(self)
+			self.input = torch.nn.Linear(n_inputs, n_neurons)
+			self.hidden = torch.nn.Linear(n_neurons, n_neurons)
+			self.output = torch.nn.Linear(n_neurons, n_outputs)
+		def forward(self, x):
+			x = torch.nn.functional.relu(self.input(x))
+			x = torch.nn.functional.relu(self.hidden(x))
+			x = torch.nn.functional.softmax(self.output(x), dim=0)
+			return x
+
+	class Critic(torch.nn.Module):
+		def __init__(self, n_neurons, n_inputs, n_outputs):
+			torch.nn.Module.__init__(self)
+			self.input = torch.nn.Linear(n_inputs, n_neurons)
+			self.hidden = torch.nn.Linear(n_neurons, n_neurons)
+			self.output = torch.nn.Linear(n_neurons, n_outputs)
+		def forward(self, x):
+			x = torch.nn.functional.relu(self.input(x))
+			x = torch.nn.functional.relu(self.hidden(x))
+			x = self.output(x)
+			return x
+
+	class ReplayMemory():
+		def __init__(self, rng, batch_size):
+			self.memory = []
+			self.rng = rng
+			self.batch_size = batch_size
+		def push(self, transition):
+			self.memory.append(transition)
+		def sample(self):
+			idx = self.rng.randint(0, len(self.memory), size=self.batch_size)
+			states, actions, next_states, rewards = [], [], [], []
+			for i in idx:
+				states.append(self.memory[i][0].unsqueeze(0))
+				actions.append(self.memory[i][1].unsqueeze(0))
+				next_states.append(self.memory[i][2].unsqueeze(0))
+				rewards.append(self.memory[i][3].unsqueeze(0))
+			# reshape into (batchsize, dim) tensors, then remove gr
+			states = torch.cat(states, dim=0)
+			actions = torch.cat(actions, dim=0)
+			next_states = torch.cat(next_states, dim=0)
+			rewards = torch.cat(rewards, dim=0)
+			return states, actions, next_states, rewards
+
 	def __init__(self, player, seed=0, n_inputs=15, n_actions=11, ID="soft-actor-critic",
 			w_self=1, w_other=0, gamma=0.99, n_neurons=100, learning_rate=1e-3, batch_size=300,
-			alpha=0.1):
+			alpha=1):
 		self.player = player
 		self.ID = ID
-		self.rng = np.random.RandomState(seed=seed)
 		self.seed = seed
+		self.rng = np.random.RandomState(seed=seed)
 		self.gamma = gamma
 		self.alpha = alpha
+		self.batch_size = batch_size
 		self.learning_rate = learning_rate
 		self.w_self = w_self
 		self.w_other = w_other
 		self.n_inputs = n_inputs
 		self.n_actions = n_actions
 		self.n_neurons = n_neurons
-		self.batch_size = batch_size
-		self.inputs = keras.layers.Input(shape=(n_inputs), batch_size=self.batch_size)
-		# critic network to use live
-		self.critic_in = keras.layers.Dense(n_neurons, activation="relu")(self.inputs)
-		self.critic_hidden = keras.layers.Dense(n_neurons, activation="relu")(self.critic_in)
-		self.critic_out = keras.layers.Dense(n_actions)(self.critic_hidden)
-		self.critic = keras.Model(inputs=self.inputs, outputs=self.critic_out)
-		# target network for critic update during learning
-		self.target_in = keras.layers.Dense(n_neurons, activation="relu")(self.inputs)
-		self.target_hidden = keras.layers.Dense(n_neurons, activation="relu")(self.target_in)
-		self.target_out = keras.layers.Dense(n_actions)(self.target_hidden)
-		self.target = keras.Model(inputs=self.inputs, outputs=self.target_out)
-		# actor network for selecting actions
-		self.actor_in = keras.layers.Dense(n_neurons, activation="relu")(self.inputs)
-		self.actor_hidden = keras.layers.Dense(n_neurons, activation="relu")(self.actor_in)
-		self.actor_out = keras.layers.Dense(n_actions, activation="softmax")(self.actor_hidden)
-		# self.actor_out = keras.layers.Dense(n_actions, activation="log_softmax")(self.actor_hidden)
-		self.actor = keras.Model(inputs=self.inputs, outputs=self.actor_out)
-		# loss functions
-		# self.critic_loss_function = keras.losses.Huber()
-		self.critic_loss_function = keras.losses.MeanSquaredError()
-		self.actor_loss_function = keras.losses.KLDivergence()
-		# optimizer
-		self.optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
-		self.memory = self.ReplayMemory(self.rng)
+		torch.manual_seed(seed)
+		self.actor = self.Actor(n_neurons, n_inputs, n_actions)
+		self.critic = self.Critic(n_neurons, n_inputs, n_actions)
+		self.target = self.Critic(n_neurons, n_inputs, n_actions)
+		self.memory = self.ReplayMemory(self.rng, self.batch_size)
+		self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), self.learning_rate)
+		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), self.learning_rate)
+		self.actor_loss_function = torch.nn.KLDivLoss(reduction='batchmean')
+		self.critic_loss_function = torch.nn.MSELoss(reduction='mean')
 		self.state = None
-		self.episode = 0
 		self.critic_losses = []
 		self.actor_losses = []
-
-	class ReplayMemory:
-		def __init__(self, rng):
-			self.memory = []
-			self.rng = rng
-		def push(self, transition):
-			self.memory.append(transition)
-		def sample(self, batch_size, n_actions):
-			idx = self.rng.randint(0, len(self.memory), size=batch_size)
-			states, actions, next_states, rewards = [], [], [], []
-			for i in idx:
-				states.append(self.memory[i][0])
-				actions.append(self.memory[i][1])
-				next_states.append(self.memory[i][2])
-				rewards.append(self.memory[i][3])
-			states = concat(states, axis=0)  # reshape into (batch_size, n_inputs) tensors)
-			actions = concat(actions, axis=0)  # reshape into (batch_size, n_actions) tensors)
-			next_states = concat(next_states, axis=0)  # reshape into (batch_size, n_inputs) tensors)
-			rewards = concat(rewards, axis=0)  # reshape into (batch_size, 1) tensors)
-			return states, actions, next_states, rewards
-		def __len__(self):
-			return len(self.memory)
+		self.episode = 0
 
 	def new_game(self):
 		self.state = None
@@ -270,8 +278,7 @@ class SoftActorCritic():
 				elif self.player == 'trustee':
 					game_state[opponent_gen_idx] = game.investor_gen[t]
 					game_state[my_gen_idx] = game.trustee_gen[t] if not np.isnan(game.trustee_gen[t]) else -1
-		game_state = expand_dims(convert_to_tensor(game_state), 0)  # shape=(1, n_inputs)	
-		return game_state
+		return torch.FloatTensor(game_state)	
 
 	def update_state(self, give, keep):
 		self.state = give/(give+keep) if give+keep>0 else np.NaN
@@ -291,74 +298,78 @@ class SoftActorCritic():
 					elif self.player == 'trustee':
 						game_state[opponent_gen_idx] = game.investor_gen[t]
 						game_state[my_gen_idx] = game.trustee_gen[t] if not np.isnan(game.trustee_gen[t]) else -1
-			game_state = expand_dims(convert_to_tensor(game_state), 0)
-			game_states.append(game_state)
-		# game_states.append(zeros((1, self.n_inputs)))  # add a final "finished game" state to allow learning on the last turn
-		game_states.append(-1*ones((1, self.n_inputs), dtype=float64))  # add a final "finished game" state to allow learning on the last turn
+			game_states.append(torch.FloatTensor(game_state))
+		# add a final "finished game" state to allow learning on the last turn
+		# game_states.append(-1.0*torch.ones((1, self.n_inputs)))
 		# add an (state, action, next_state, reward) transition entry to memory
-		for t in range(game.turns):
+		for t in range(game.turns-1):
 			s = game_states[t]
-			a = game.investor_give[t] if self.player=='investor' else game.trustee_give[t]
 			sp = game_states[t+1]
-			r = convert_to_tensor(1.0*game.investor_reward[t]) if self.player=='investor' else convert_to_tensor(1.0*game.trustee_reward[t])
+			if self.player=='investor':
+				a = torch.LongTensor([game.investor_give[t]])  # dtype=int
+				r = torch.FloatTensor([1.0*game.investor_reward[t]])
+			else:
+				a = torch.LongTensor([game.trustee_give[t]])  # dtype=int
+				r = torch.FloatTensor([1.0*game.trustee_reward[t]])
 			self.memory.push([s,a,sp,r])
 
 	def move(self, game):
 		game_state = self.get_state(game)
-		# action = self.rng.choice(self.n_actions, p=np.squeeze(self.actor(game_state)))
-		action_dist = tfd.Categorical(probs=self.actor(game_state))
-		action = action_dist.sample()
+		action_dist = torch.distributions.categorical.Categorical(probs=self.actor(game_state))
+		action = action_dist.sample() # Sample action from action probability distribution
+		move = action.detach().numpy()
 		coins = game.coins if self.player=='investor' else game.investor_give[-1]*game.match  # coins available
-		give = int(np.clip(action, 0, coins))
+		give = int(np.clip(move, 0, coins))
 		keep = int(coins - give)
 		self.update_state(give, keep)  # for reference
 		return give, keep
 
 
 	def learn(self, game):
-		# first, push all the transitions from the game that just ended into memory
+		# push all the transitions from the game that just ended into memory
+		# then go through the entire memory (across games) and do batch learning
+		# batch_size random transitions (s,as',r) are taken from experience replay memory
 		self.update_memory(game)
-		# now go through the entire memory (across games) and do batch learning
-		if len(self.memory) < self.batch_size: return
-		# random transition batch is taken from experience replay memory
-		states, actions, next_states, rewards = self.memory.sample(self.batch_size, self.n_actions)
+		if len(self.memory.memory) < self.batch_size:
+			return
+		states, actions, next_states, rewards = self.memory.sample()
+
+		# loss for actor network is the KL divergence between the action distribution and the predicted Q distribution
+		action_probs = self.actor(next_states)
+		next_Qs = self.target(next_states)
+		soft_Qs = torch.nn.functional.softmax(next_Qs, dim=1)
+		actor_loss = self.actor_loss_function(action_probs, soft_Qs)
+		self.actor_optimizer.zero_grad()
+		actor_loss.backward()
+		# torch.nn.utils.clip_grad_value_(self.actor.parameters(), clip_value=1)
+		self.actor_optimizer.step()
+	
+		# loss for critic network is measured from error between current and expected values
+		action_probs = self.actor(next_states)
 		# build a distribution for the action probabilities, then sample from it
-		action_dist = tfd.Categorical(probs=self.actor(next_states))  
-		next_actions = action_dist.sample()
-		# current Q value are estimated by the value network the chosen action
+		action_dist = torch.distributions.categorical.Categorical(probs=action_probs)
+		next_actions = action_dist.sample().unsqueeze(0)
 		current_Qs = self.critic(states)
 		next_Qs = self.target(next_states)
-		# sample the next Q value by choosing an action and adding the entropy of the policy network
-		current_values = gather(current_Qs, actions, batch_dims=1)
-		next_values = gather(next_Qs, next_actions, batch_dims=1)
+		# sample the next Q value by choosing the sampled actions and adding the entropy of the policy network
+		current_values = current_Qs.gather(index=actions, dim=1)
+		next_values = next_Qs.gather(index=next_actions, dim=1)
 		entropy = action_dist.entropy()
-		expected_future_rewards = next_values + self.alpha*entropy
-		# print('value', next_values, 'entropy', self.alpha*entropy)
+		expected_future_rewards = torch.transpose(next_values + self.alpha*entropy, 0, 1)
 		expected_values = rewards + self.gamma * expected_future_rewards
-		# loss for critic network is measured from error between current and expected values
 		critic_loss = self.critic_loss_function(current_values, expected_values)
-		# loss for actor network is the KL divergence between the action distribution and the predicted Q distribution
-		soft_Qs = softmax(next_Qs, axis=1)
-		soft_actions = self.actor(next_states)
-		actor_loss = 1000*self.actor_loss_function(soft_actions, soft_Qs)
+		self.critic_optimizer.zero_grad()
+		critic_loss.backward()
+		# torch.nn.utils.clip_grad_value_(self.critic.parameters(), clip_value=1)
+		self.critic_optimizer.step()
+
+		self.actor_losses.append([self.episode, float(actor_loss.detach().numpy())])
+		self.critic_losses.append([self.episode, float(critic_loss.detach().numpy())])
+
+		if self.episode % 100 == 0:
+			self.target.load_state_dict(self.critic.state_dict())
+
 		# OR update the actor network by reducing the log probability of choosing an action in a state minus the Q value of the state-action pair
 		# log_prob_actions = log(self.actor(next_states))
 		# log_probs = gather(log_prob_actions, next_actions, batch_dims=1)
 		# actor_loss = keras.losses.MeanSquaredError()(log_probs, next_values)
-		combined_losses = [critic_loss, actor_loss]
-		combined_parameters = [self.critic.trainable_variables, self.actor.trainable_variables]
-		combined_grads = game.tape.gradient(combined_losses, combined_parameters)
-		flat_parameters = []
-		flat_grads = []
-		for n in range(2):
-			for i in range(len(combined_grads[n])):
-				flat_parameters.append(combined_parameters[n][i])
-				flat_grads.append(combined_grads[n][i])
-		# print('grads', flat_grads)
-		# print('flat_parameters', flat_parameters)
-		self.actor_losses.append([self.episode, actor_loss.numpy()])
-		self.critic_losses.append([self.episode, critic_loss.numpy()])
-
-		if self.episode % 100 == 0:
-			self.critic.save_weights("data/soft_actor_critic_model")
-			self.target.load_weights("data/soft_actor_critic_model")
