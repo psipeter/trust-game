@@ -74,7 +74,7 @@ def process_data(raw, agents):
 
 	metrics_score = ('agent', 'player', 'mean', 'std', 'skew', 'kurtosis', 'adapt')
 
-	def distribution_distance(a,b,var):
+	def chi_squared_distance(a,b,var):
 		# turn arrays of generosities / scores into histograms
 		bins = np.arange(0, 1.1, 0.1) if var=='generosity' else np.arange(0, 31, 1)
 		A = np.histogram(a, bins=bins)[0] / len(a)
@@ -97,7 +97,7 @@ def process_data(raw, agents):
 	def get_learning(data, initial_games, final_games):
 		dist_initial = np.array(data.query('game<@initial_games')['generosity'])
 		dist_final = np.array(data.query('game>=@final_games')['generosity'])
-		delta = distribution_distance(dist_initial, dist_final, 'generosity')
+		delta = chi_squared_distance(dist_initial, dist_final, 'generosity')
 		return delta
 
 	def get_speed(data, games, final_games, thr=0.98):
@@ -105,7 +105,7 @@ def process_data(raw, agents):
 		similarities = []
 		for g in range(games):
 			dist_g = np.array(data.query('game==@g')['generosity'])
-			similarities.append(1 - distribution_distance(dist_g, dist_final, 'generosity'))
+			similarities.append(1 - chi_squared_distance(dist_g, dist_final, 'generosity'))
 		# find the game past which all generosity distributions resemble the final generosity distribution
 		for g in range(len(similarities)-1):
 			if np.all(np.array(similarities)[g:]>thr):

@@ -17,35 +17,34 @@ def plot_one_game(data):
 	sns.despine(top=True, right=True)
 	fig.savefig('plots/one_game.pdf')
 
-def plot_many_games(data, learner_plays):
+def plot_many_games(data, learner_plays, name):
 	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((6, 2)))
 	sns.lineplot(data=data, x='game', y='generosity', hue='player', ax=ax)
 	sns.lineplot(data=data, x='game', y='coins', hue='player', ax=ax2)
 	# sns.lineplot(data=data, x='game', y='generosity', hue='player', style='ID', ax=ax)
 	# sns.lineplot(data=data, x='game', y='coins', hue='player', style='ID', ax=ax2)
-	ax.set(ylim=((0, 1)), yticks=((0, 1)))
-	ax2.set(ylim=((0, 15)), yticks=((0,5,10,15)))
+	if learner_plays=='investor':
+		ax2.set(ylim=((-1, 16)), yticks=((0,5,10,15)))
+	else:
+		ax2.set(ylim=((-1, 31)), yticks=((0,5,10,15,20,25,30)))	
 	# ax.get_legend().remove()
 	ax2.get_legend().remove()
 	plt.tight_layout()
 	sns.despine(top=True, right=True)
-	fig.savefig(f'plots/many_games_learner_plays_{learner_plays}.pdf')
+	fig.savefig(f'plots/{name}_{learner_plays}.pdf')
 
-def plot_learning(data, data_loss, learner_plays, name):
+def plot_learning(data, learner_plays, name):
 	data_train = data.query("phase=='train'")
-	fig, (ax, ax2, ax3) = plt.subplots(nrows=1, ncols=3, figsize=((9, 2)))
-	ax4 = ax3.twinx()
-	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='generosity', bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax)
-	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='coins', bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax2)
-	sns.lineplot(data=data_loss, x='game', y='critic_loss', color=palette[0], ax=ax3)
-	sns.lineplot(data=data_loss, x='game', y='actor_loss', color=palette[1], ax=ax4)
+	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((6, 2)))
+	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='generosity',
+		bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax)
+	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='coins',
+		bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax2)
 	ax.set(ylim=((-0.1, 1.1)), yticks=((0, 1)))
 	if learner_plays=='investor':
 		ax2.set(ylim=((-1, 16)), yticks=((0,5,10,15)))
 	else:
 		ax2.set(ylim=((-1, 31)), yticks=((0,5,10,15,20,25,30)))	
-	ax3.set(ylabel="Critic Loss")
-	ax4.set(ylabel="Actor Loss")
 	plt.tight_layout()
 	fig.savefig(f'plots/{name}_{learner_plays}_learning.pdf')
 
@@ -66,22 +65,27 @@ def plot_policy(data, learner_plays, name):
 	# 		df = pd.DataFrame([[ID, opponent_ID, player, turn, my_generosity, opponent_generosity]], columns=columns)
 	# 		dfs.append(df)
 	# forgive_punish_data = pd.concat([df for df in dfs], ignore_index=True)
-
-	if np.std(data_test.query('player==@learner_plays')['generosity'].to_numpy())>0.05:
-		fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))
-		sns.kdeplot(data=data_test.query('player==@learner_plays'), x='turn', y='generosity', bw_method=0.1, levels=5, thresh=0.1, fill=True, ax=ax)
-		ax.set(xlim=((-0.5, 4.5)), xticks=((0,1,2,3,4)), ylim=((-0.1, 1.1)), yticks=((0, 1)))
-		plt.tight_layout()
-		sns.despine(top=True, right=True)
-		fig.savefig(f'plots/{name}_{learner_plays}_policy.pdf')
-	else:
-		bins = np.arange(0, 1.1, 0.1)
-		fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))
-		sns.histplot(data=data_test.query('player==@learner_plays'), x='generosity', bins=bins, stat='probability', ax=ax)
-		ax.set(xticks=((0, 1)), xlim=((0, 1)), ylim=((0, 1)), yticks=((0, 1)))
-		plt.tight_layout()
-		sns.despine(top=True, right=True)
-		fig.savefig(f'plots/{name}_{learner_plays}_policy.pdf')
+	generosities = data_test.query('player==@learner_plays')['generosity'].to_numpy()
+	n_total = len(generosities)
+	n_nans = np.count_nonzero(np.isnan(generosities))  # count "nan" generosities (which indicate a skipped turn) in the data
+	generosities = generosities[~np.isnan(generosities)]  # remove these entries from the data
+	data = data_test.query('player==@learner_plays').dropna()
+	# if np.std(data_test.query('player==@learner_plays')['generosity'].to_numpy())>1e-5:
+	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))
+	sns.kdeplot(data=data, x='turn', y='generosity',
+		bw_method=0.1, levels=5, thresh=0.1, fill=True, ax=ax)
+	ax.set(xlim=((-0.5, 4.5)), xticks=((0,1,2,3,4)), ylim=((-0.1, 1.1)), yticks=((0, 1)), title=f'skips: {n_nans}/{n_total}')
+	plt.tight_layout()
+	sns.despine(top=True, right=True)
+	fig.savefig(f'plots/{name}_{learner_plays}_policy.pdf')
+	# else:
+	# 	bins = np.arange(0, 1.1, 0.1)
+	# 	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))
+	# 	sns.histplot(data=data_test.query('player==@learner_plays'), x='generosity', bins=bins, stat='probability', ax=ax)
+	# 	ax.set(xticks=((0, 1)), xlim=((0, 1)), ylim=((0, 1)), yticks=((0, 1)))
+	# 	plt.tight_layout()
+	# 	sns.despine(top=True, right=True)
+	# 	fig.savefig(f'plots/{name}_{learner_plays}_policy.pdf')
 
 	# try:
 	# 	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))
