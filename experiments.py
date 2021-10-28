@@ -79,12 +79,14 @@ def test_adaptivity(learner_type, n_learners=100, n_train=1000, n_test=100, n_in
 		dfs = []
 		if learner_plays=='investor':
 			for investor in investors:
+				investor.reinitialize('investor')
 				for g in range(n_train):
 					dfs = game_loop(investor, trustees[0], 'train', g=g, dfs=dfs)
 				for g in range(n_test):
 					dfs = game_loop(investor, trustees[0], 'test', g=g, dfs=dfs)
 		if learner_plays=='trustee':
 			for trustee in trustees:
+				trustee.reinitialize('trustee')
 				for g in range(n_train):
 					dfs = game_loop(investors[0], trustee, 'train', g=g, dfs=dfs)
 				for g in range(n_test):
@@ -99,82 +101,47 @@ def test_adaptivity(learner_type, n_learners=100, n_train=1000, n_test=100, n_in
 			metrics_gen, metrics_score = process_data(data, trustees)
 		plot_metrics(metrics_gen, metrics_score, learner_plays=learner_plays, name=name)
 
-	'''test turn-to-turn adaptivity, investor'''
 	if learner_type=="actor-critic":
-		investors = [ActorCritic('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
+		learners = [ActorCritic('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
 	if learner_type=="instance-based":
-		investors = [InstanceBased('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	trustees = [adaptive('trustee', 'turn_based')]
-	train_and_test(investors, trustees, 'investor', n_train, n_test, "adapt")
+		learners = [InstanceBased('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
+
+	'''test turn-to-turn adaptivity, investor'''
+	fixed_agents = [adaptive('trustee', 'turn_based')]
+	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "adapt")
 
 	'''test turn-to-turn adaptivity, trustee'''
-	if learner_type=="actor-critic":
-		trustees = [ActorCritic('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	if learner_type=="instance-based":
-		trustees = [InstanceBased('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	investors = [adaptive('investor', 'turn_based')]
-	train_and_test(investors, trustees, 'trustee', n_train, n_test, "adapt")
+	fixed_agents = [adaptive('investor', 'turn_based')]
+	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "adapt")
 
 	'''test cooperation, investor'''
-	if learner_type=="actor-critic":
-		investors = [ActorCritic('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	if learner_type=="instance-based":
-		investors = [InstanceBased('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	trustees = [adaptive('trustee', 'cooperate')]
-	train_and_test(investors, trustees, 'investor', n_train, n_test, "cooperate")
+	fixed_agents = [adaptive('trustee', 'cooperate')]
+	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "cooperate")
 
 	'''test cooperation, trustee'''
-	if learner_type=="actor-critic":
-		trustees = [ActorCritic('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	if learner_type=="instance-based":
-		trustees = [InstanceBased('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	investors = [adaptive('investor', 'cooperate')]
-	train_and_test(investors, trustees, 'trustee', n_train, n_test, "cooperate")
+	fixed_agents = [adaptive('investor', 'cooperate')]
+	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "cooperate")
 
 	'''test defection, investor'''
-	if learner_type=="actor-critic":
-		investors = [ActorCritic('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	if learner_type=="instance-based":
-		investors = [InstanceBased('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	trustees = [adaptive('trustee', 'defect')]
-	train_and_test(investors, trustees, 'investor', n_train, n_test, "defect")
+	fixed_agents = [adaptive('trustee', 'defect')]
+	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "defect")
 
 	'''test defection, trustee'''
-	if learner_type=="actor-critic":
-		trustees = [ActorCritic('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	if learner_type=="instance-based":
-		trustees = [InstanceBased('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	investors = [adaptive('investor', 'defect')]
-	train_and_test(investors, trustees, 'trustee', n_train, n_test, "defect")
+	fixed_agents = [adaptive('investor', 'defect')]
+	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "defect")
 
 	'''test gifting, investor'''
-	if learner_type=="actor-critic":
-		investors = [ActorCritic('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	if learner_type=="instance-based":
-		investors = [InstanceBased('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	trustees = [adaptive('trustee', 'gift')]
-	train_and_test(investors, trustees, 'investor', n_train, n_test, "gift")
+	fixed_agents = [adaptive('trustee', 'gift')]
+	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "gift")
 
 	'''test gifting, trustee'''
-	if learner_type=="actor-critic":
-		trustees = [ActorCritic('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	if learner_type=="instance-based":
-		trustees = [InstanceBased('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	investors = [adaptive('investor', 'gift')]
-	train_and_test(investors, trustees, 'trustee', n_train, n_test, "gift")
+	fixed_agents = [adaptive('investor', 'gift')]
+	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "gift")
 
 	'''test attrition, investor'''
-	if learner_type=="actor-critic":
-		investors = [ActorCritic('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	if learner_type=="instance-based":
-		investors = [InstanceBased('investor', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	trustees = [adaptive('trustee', 'attrition')]
-	train_and_test(investors, trustees, 'investor', n_train, n_test, "attrition")
+	fixed_agents = [adaptive('trustee', 'attrition')]
+	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "attrition")
 
 	'''test attrition, trustee'''
-	if learner_type=="actor-critic":
-		trustees = [ActorCritic('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	if learner_type=="instance-based":
-		trustees = [InstanceBased('trustee', ID=n+seed, seed=n+seed, n_inputs=n_inputs) for n in range(n_learners)]
-	investors = [adaptive('investor', 'attrition')]
-	train_and_test(investors, trustees, 'trustee', n_train, n_test, "attrition")
+	fixed_agents = [adaptive('investor', 'attrition')]
+	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "attrition")

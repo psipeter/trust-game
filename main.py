@@ -31,5 +31,5 @@ from experiments import *
 
 # play_tournament(investors, trustees, tournament_type, learner_plays, n_train)
 
-# test_adaptivity(learner_type="actor-critic", n_learners=20, n_train=500, n_test=100, seed=0)
-test_adaptivity(learner_type="instance-based", n_learners=20, n_train=500, n_test=100, seed=0)
+# test_adaptivity(learner_type="actor-critic", n_learners=3, n_train=500, n_test=100, seed=0)
+test_adaptivity(learner_type="instance-based", n_learners=10, n_train=500, n_test=100, seed=0)
