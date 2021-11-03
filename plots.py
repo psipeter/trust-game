@@ -34,7 +34,7 @@ def plot_many_games(data, learner_plays, name):
 	fig.savefig(f'plots/{name}_{learner_plays}.pdf')
 
 def plot_learning(data, learner_plays, name):
-	data_train = data.query("phase=='train'")
+	data_train = data.query("train==True")
 	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((6, 2)))
 	sns.kdeplot(data=data_train.query("player==@learner_plays"), x='game', y='generosity',
 		bw_method=0.1, levels=5, thresh=0.2, fill=True, ax=ax)
@@ -49,7 +49,7 @@ def plot_learning(data, learner_plays, name):
 	fig.savefig(f'plots/{name}_{learner_plays}_learning.pdf')
 
 def plot_policy(data, learner_plays, name):
-	data_test = data.query("phase=='test'")
+	data_test = data.query("train==False")
 	# dfs = []
 	# columns = ('ID', 'opponent_ID', 'player', 'turn', 'my_generosity', 'opponent_generosity')
 	# for index, row in data_test.iterrows():

@@ -4,7 +4,7 @@ import pandas as pd
 from scipy.stats import entropy, skew, kurtosis, normaltest
 
 class Game():
-	def __init__(self, coins=10, match=3, turns=5):
+	def __init__(self, coins=10, match=3, turns=5, train=False):
 		self.coins = coins
 		self.match = match
 		self.turns = turns
@@ -18,11 +18,12 @@ class Game():
 		self.trustee_gen = []
 		self.trustee_reward = []
 		self.trustee_state = []
+		self.train = train
 
 def generosity(player, give, keep):
 	return np.NaN if give+keep==0 and player=='trustee' else give/(give+keep)
 
-def play_game(game, investor, trustee, phase):
+def play_game(game, investor, trustee):
 	assert investor.player == 'investor' and trustee.player == 'trustee', \
 		f"invalid player assignments {investor.player, trustee.player}"
 	investor.new_game()
@@ -40,7 +41,10 @@ def play_game(game, investor, trustee, phase):
 		game.trustee_state.append(trustee.state)
 		game.investor_reward.append(i_keep+t_give)
 		game.trustee_reward.append(t_keep)
-	if phase=='train':
+		# if game.train:
+		# 	investor.learn(game)
+		# 	trustee.learn(game)
+	if game.train:
 		investor.learn(game)
 		trustee.learn(game)
 
@@ -113,7 +117,7 @@ def process_data(raw, agents):
 		return 0  # if this criteria is never met, return zero
 
 	def get_probabilities(raw, ID, player, turns, thr_investor=1, thr_trustee=0.5):
-		data = raw.query('phase=="test"')
+		data = raw.query('train==False')
 		cooperates = 0
 		defects = 0
 		gifts = 0
@@ -152,8 +156,8 @@ def process_data(raw, agents):
 	for agent in agents:
 		ID = agent.ID
 		player = agent.player
-		data_train = raw.query('ID==@ID & player==@player & phase=="train"')
-		data_test = raw.query('ID==@ID & player==@player & phase=="test"')
+		data_train = raw.query('ID==@ID & player==@player & train==True')
+		data_test = raw.query('ID==@ID & player==@player & train==False')
 		mean = np.mean(data_test['generosity'])
 		std = np.std(data_test['generosity'])
 		skw = skew(data_test['generosity'])
@@ -170,8 +174,8 @@ def process_data(raw, agents):
 	for agent in agents:
 		ID = agent.ID
 		player = agent.player
-		data_train = raw.query('ID==@ID & player==@player & phase=="train"')
-		data_test = raw.query('ID==@ID & player==@player & phase=="test"')
+		data_train = raw.query('ID==@ID & player==@player & train==True')
+		data_test = raw.query('ID==@ID & player==@player & train==False')
 		mean = np.mean(data_test['coins'])
 		std = np.std(data_test['coins'])
 		skw = skew(data_test['coins'])
