@@ -33,7 +33,7 @@ class ActorCritic():
 			x = self.output(x)
 			return x
 
-	def __init__(self, player, seed=0, n_inputs=15, n_actions=11, ID="actor-critic",
+	def __init__(self, player, seed=0, n_inputs=5, n_actions=11, ID="actor-critic",
 			gamma=0.99, n_neurons=100, learning_rate=3e-3):
 		self.player = player
 		self.ID = ID
@@ -88,8 +88,11 @@ class ActorCritic():
 
 	def get_state(self, game):
 		game_state = np.zeros((self.n_inputs))
+		if self.n_inputs == 5:
+			current_turn = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
+			game_state[current_turn] = 1
 		if self.n_inputs == 15:
-			current_turn = len(game.investor_give) if self.player=='investor' else len(game.investor_give)-1
+			current_turn = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
 			game_state[current_turn] = 1
 			for t in range(current_turn):  # loop over past history and add to state
 				my_gen_idx = game.turns + t
@@ -201,7 +204,7 @@ class InstanceBased():
 	def get_state(self, game):
 		game_state = np.zeros((self.n_inputs))
 		if self.n_inputs == 15:
-			current_turn = len(game.investor_give) if self.player=='investor' else len(game.investor_give)-1
+			current_turn = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
 			game_state[current_turn] = 1
 			for t in range(current_turn):  # loop over past history and add to state
 				my_gen_idx = game.turns + t
@@ -350,35 +353,59 @@ class InstanceBased():
 class NengoActorCritic():
 
 	class StateInput():
-		def __init__(self):
-			self.state = None
+		def __init__(self, n_inputs):
+			self.state = np.zeros((n_inputs))
 		def set(self, state):
 			self.state = state
-		def update(self, x):
+		def get(self):
 			return self.state
 
-	class RewardInput():
+	class PastRewardInput():
 		def __init__(self):
-			self.reward = 0
-		def set(self, reward):
-			self.reward = reward
-		def update(self, x):
-			return self.reward
+			self.history = []
+		def append(self, reward):
+			self.history.append(reward)
+		def clear(self):
+			self.history.clear()
+		def get(self):
+			if len(self.history)==0:
+				return 0
+			else:
+				return self.history[-1]
+
+	class PastProbsInput():
+		def __init__(self, n_actions):
+			self.n_actions = n_actions
+			self.history = []
+		def append(self, probs):
+			self.history.append(probs)
+		def clear(self):
+			self.history.clear()
+		def get(self):
+			if len(self.history)==0:
+				return np.zeros((self.n_actions))
+			else:
+				return self.history[-1]
 
 	class PastActionInput():
 		def __init__(self):
-			self.action = 0
-		def set(self, action):
-			self.action = action
-		def update(self, x):
-			return self.action
+			self.history = []
+		def append(self, action):
+			self.history.append(action)
+		def clear(self):
+			self.history.clear()
+		def get(self):
+			if len(self.history)==0:
+				return 0
+			else:
+				return self.history[-1]
 
 	class LearningInput():
 		def __init__(self):
 			self.learning = 0
 		def set(self, learning):
 			self.learning = learning  # 0=testing, 1=training, 2=first turn, 3=last turn
-		def update(self, t, x):
+		def get(self):
 			return self.learning
 
 	# an implementation of a pure Delay synapse for nengo
@@ -386,10 +413,8 @@ class NengoActorCritic():
 		def __init__(self, delay, size_in=1):
 			self.delay = delay
 			super().__init__(default_size_in=size_in, default_size_out=size_in)
-
 		def make_state(self, shape_in, shape_out, dt, dtype=None, y0=None):
 			return {}
-
 		def make_step(self, shape_in, shape_out, dt, rng, state=None):
 			steps = int(self.delay/dt)
 			if steps == 0:
@@ -399,18 +424,16 @@ class NengoActorCritic():
 			assert steps > 0
 			state = np.zeros((steps, shape_in[0]))
 			state_index = np.array([0])
-
 			def step_delay(t, x, state=state, state_index=state_index):
 				result = state[state_index]
 				state[state_index] = x
 				state_index[:] = (state_index + 1) % state.shape[0]
 				return result
-
 			return step_delay
 
-	def __init__(self, player, seed=0, n_inputs=6, n_actions=3, ID="nengo-actor-critic",
-			critic_learning_rate=1e-5, actor_learning_rate=3e-6, gamma=0.99, n_neurons=100, dt=1e-3, tau=0.01, turn_time=1,
-			encoder_method='one-hot', temperature=1, temperature_decay=0.98):
+	def __init__(self, player, seed=0, n_inputs=6, n_actions=11, ID="nengo-actor-critic",
+			critic_learning_rate=1e-4, actor_learning_rate=1e-4, gamma=0.99, n_neurons=100, dt=1e-3, tau=0.01, turn_time=2e-3,
+			encoder_method='one-hot', temperature=1, temperature_decay=0.99):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -418,20 +441,21 @@ class NengoActorCritic():
 		self.n_inputs = n_inputs
 		self.n_actions = n_actions
 		self.n_neurons = n_neurons
-		self.encoder_method = encoder_method
 		self.dt = dt
+		self.encoder_method = encoder_method
 		self.critic_learning_rate = critic_learning_rate
 		self.actor_learning_rate = actor_learning_rate
 		self.gamma = gamma  # discount
 		self.tau = tau  # synaptic time constant
-		self.delay = self.Delay(int(turn_time))  # implement a delay for learning
+		self.delay = self.Delay(dt)  # implement a delay for learning
 		self.turn_time = turn_time
 		self.temperature = temperature
 		self.temperature_decay = temperature_decay
 		self.state = None
-		self.state_input = self.StateInput()
-		self.reward_input = self.RewardInput()
+		self.state_input = self.StateInput(n_inputs)
+		self.past_reward_input = self.PastRewardInput()
 		self.past_action_input = self.PastActionInput()
+		self.past_probs_input = self.PastProbsInput(n_actions)
 		self.learning_input = self.LearningInput()
 		self.network = None
 		self.simulator = None
@@ -447,14 +471,17 @@ class NengoActorCritic():
 	def new_game(self):
 		self.network = self.build_network()
 		self.simulator = nengo.Simulator(self.network, dt=self.dt, progress_bar=False)
+		self.past_reward_input.clear()
+		self.past_action_input.clear()
+		self.past_probs_input.clear()
 
 	def get_state(self, game):
 		game_state = np.zeros((self.n_inputs))
 		if self.n_inputs == 6:
-			current_turn = len(game.investor_give) if self.player=='investor' else len(game.investor_give)-1
+			current_turn = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
 			game_state[current_turn] = 1
 		if self.n_inputs == 18:
-			current_turn = len(game.investor_give) if self.player=='investor' else len(game.investor_give)-1
+			current_turn = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
 			game_state[current_turn] = 1
 			for t in range(current_turn):  # loop over past history and add to state
 				my_gen_idx = game.turns + t
@@ -471,61 +498,65 @@ class NengoActorCritic():
 		network = nengo.Network(seed=self.seed)
 		d_actor = self.d_actor if np.any(self.d_actor) else np.zeros((self.n_actions, self.n_neurons))
 		d_critic = self.d_critic if np.any(self.d_critic) else np.zeros((1, self.n_neurons))
-		with network:
+		if self.encoder_method=='uniform':
+			intercepts = nengo.Default
+			encoders = nengo.Default
+		elif self.encoder_method=='one-hot':
+			intercepts = nengo.dists.Uniform(0.1, 1)
+			encs = []
+			for dim in range(self.n_inputs):
+				enc = np.zeros((self.n_inputs))
+				enc[dim] = 1
+				encs.append(enc)
+			encoders = nengo.dists.Choice(encs)
 
+		with network:
 			def value_error_func(t, x):
-				reward_past = x[0]  # reward for the state associated with value_past
-				value_past = x[1]
-				value_now = x[2]
+				reward = x[0]  # reward for the past state/action
+				past_value = x[1]  # past state
+				value = x[2]  # current state
 				learning = x[3]  # turns learning on/off
 				if learning==0:  # no learning during testing
 					error = 0  
 				elif learning==1:  # normal RL update
-					error = reward_past + self.gamma*value_now - value_past	
-				elif learning==2:  # no learning during first turn (no reward signal, value_past is misleading)
+					# error = 0
+					error = reward + self.gamma*value - past_value	
+				elif learning==2:  # no learning during first turn (no reward signal)
 					error = 0
 				elif learning==3:  # the target value in the 6th turn is simply equal to the reward (no future state)
-					error = reward_past - value_past
+					error = reward - past_value
+				# print(f't {t} \t past {past_value:.4f} \t now {value:.4f} \t error {error:.4f}')
 				return error
 
 			def actor_error_func(t, x):
-				action_vals = x[:self.n_actions]  # values for each action, as given by the actor (past state)
-				action_probs = scipy.special.softmax(action_vals / self.temperature)
-				past_action = int(x[-3])  # action that was previously selected by the learning agent (past state)
-				# print(f"turn \t {t:.3f}")
-				# print(f"action vals \t {action_vals}")
-				# print(f"action probs \t {action_probs}")
-				# print(f"action past \t {past_action}")
-				past_action_array = -1 * np.ones((self.n_actions)) # output of actor ensemble (+1 for chosen, -1 for not chosen)
-				past_action_array[past_action] = 1
+				probs = x[:self.n_actions]  # values for each action, as given by the actor (past state)
+				action = int(x[-3])  # action that was previously selected by the learning agent (past state)
 				value_error = x[-2]  # value error (past state)
 				learning = x[-1]  # turns learning on/off
-				# print(f"value error \t {value_error}")
-				# print(f"action array \t {past_action_array}")
 				if learning==0:  # no learning during testing
 					error = np.zeros((self.n_actions))
 				elif learning==1:  # normal RL update, value_error*(1-p_i) if action i is chosen, else -value_error*p_i
-					error = -value_error*action_probs
-					error[past_action] = value_error*(1-action_probs[past_action])
-				elif learning==2:  # no learning during first turn (no reward signal, value_past is misleading)
+					error = -value_error*probs
+					error[action] = value_error*(1-probs[action])
+				elif learning==2:  # no learning during first turn (no reward signal)
 					error = np.zeros((self.n_actions))
 				elif learning==3:  # normal RL update, all signals are from the past turn
-					error = -value_error*action_probs
-					error[past_action] = value_error*(1-action_probs[past_action])
-				# print(f"actor error \t {error}")
+					error = -value_error*probs
+					error[action] = value_error*(1-probs[action])
 				return error
 
-			state_input = nengo.Node(lambda t, x: self.state_input.update(x), size_in=2, size_out=self.n_inputs)
-			past_reward_input = nengo.Node(lambda t, x: self.reward_input.update(x), size_in=2, size_out=1)
-			past_action_input = nengo.Node(lambda t, x: self.past_action_input.update(x), size_in=2, size_out=1)
-			learning_input = nengo.Node(lambda t, x: self.learning_input.update(t, x), size_in=2, size_out=1)
+			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=self.n_inputs)
+			past_reward = nengo.Node(lambda t, x: self.past_reward_input.get(), size_in=2, size_out=1)
+			past_probs = nengo.Node(lambda t, x: self.past_probs_input.get(), size_in=2, size_out=self.n_actions)
+			past_action = nengo.Node(lambda t, x: self.past_action_input.get(),size_in=2, size_out=1)
+			learning_input = nengo.Node(lambda t, x: self.learning_input.get(), size_in=2, size_out=1)
 
-			if self.encoder_method=='uniform':
-				state = nengo.Ensemble(n_neurons=self.n_neurons, dimensions=self.n_inputs, neuron_type=nengo.LIFRate())
-			if self.encoder_method=='one-hot':
-				state = nengo.Ensemble(n_neurons=self.n_neurons, dimensions=self.n_inputs, neuron_type=nengo.LIFRate(),
-					intercepts=nengo.dists.Uniform(0.1, 1),
-					encoders=nengo.dists.Choice([[1,0,0,0,0,0],[0,1,0,0,0,0],[0,0,1,0,0,0],[0,0,0,1,0,0],[0,0,0,0,1,0],[0,0,0,0,0,1]]))
+			state = nengo.Ensemble(
+				n_neurons=self.n_neurons,
+				dimensions=self.n_inputs,
+				intercepts=intercepts,
+				encoders=encoders,
+				neuron_type=nengo.LIFRate())
 			critic = nengo.Node(size_in=1)
 			actor = nengo.Node(size_in=self.n_actions)
 			value_error = nengo.Node(value_error_func, size_in=4)
@@ -534,18 +565,17 @@ class NengoActorCritic():
 			conn_state = nengo.Connection(state_input, state, synapse=None)
 			conn_critic = nengo.Connection(state.neurons, critic, synapse=None, transform=d_critic,
 				learning_rule_type=nengo.PES(learning_rate=self.critic_learning_rate, pre_synapse=self.delay))
+			conn_actor = nengo.Connection(state.neurons, actor, synapse=None, transform=d_actor,
+				learning_rule_type=nengo.PES(learning_rate=self.actor_learning_rate, pre_synapse=self.delay))
 
-			nengo.Connection(past_reward_input, value_error[0], synapse=None)  # past reward
+			nengo.Connection(past_reward, value_error[0], synapse=None)  # past reward
 			nengo.Connection(critic, value_error[1], synapse=self.delay)  # past value
 			nengo.Connection(critic, value_error[2], synapse=None)  # current value
 			nengo.Connection(learning_input, value_error[3], synapse=None)  # controls whether learning is on/off
 			nengo.Connection(value_error, conn_critic.learning_rule, transform=-1, synapse=None)
 
-			conn_actor = nengo.Connection(state.neurons, actor, synapse=None, transform=d_actor,
-				learning_rule_type=nengo.PES(learning_rate=self.actor_learning_rate/100, pre_synapse=self.delay))
-
-			nengo.Connection(actor, actor_error[:self.n_actions], synapse=self.delay)  # past action probabilities
-			nengo.Connection(past_action_input, actor_error[-3], synapse=None)  # past choice
+			nengo.Connection(past_probs, actor_error[:self.n_actions], synapse=None)  # past action probabilities
+			nengo.Connection(past_action, actor_error[-3], synapse=None)  # past choice
 			nengo.Connection(value_error, actor_error[-2], synapse=None)  # value error for past state
 			nengo.Connection(learning_input, actor_error[-1], synapse=None)  # controls whether learning is on/off
 			nengo.Connection(actor_error, conn_actor.learning_rule, transform=-1, synapse=None) 
@@ -555,7 +585,7 @@ class NengoActorCritic():
 			network.p_critic = nengo.Probe(critic, synapse=None)
 			network.p_critic_delayed = nengo.Probe(critic, synapse=self.delay)
 			network.p_actor = nengo.Probe(actor, synapse=None)
-			network.p_reward = nengo.Probe(past_reward_input, synapse=None)
+			network.p_reward = nengo.Probe(past_reward, synapse=None)
 			network.p_value_error = nengo.Probe(value_error, synapse=None)
 			network.p_actor_error = nengo.Probe(actor_error, synapse=None)
 			network.p_d_actor = nengo.Probe(conn_actor, "weights", synapse=None)
@@ -565,51 +595,42 @@ class NengoActorCritic():
 
 	def simulate_action(self):
 		self.simulator.run(self.turn_time)
-		
-		a_state = self.simulator.data[self.network.p_state_neurons]
-		x_state = self.simulator.data[self.network.p_state]
-		x_critic = self.simulator.data[self.network.p_critic]
-		x_critic_delayed = self.simulator.data[self.network.p_critic_delayed]
+		# a_state = self.simulator.data[self.network.p_state_neurons]
+		# x_state = self.simulator.data[self.network.p_state]
+		# x_critic = self.simulator.data[self.network.p_critic]
+		# x_critic_delayed = self.simulator.data[self.network.p_critic_delayed]
 		x_actor = self.simulator.data[self.network.p_actor]
-		x_reward = self.simulator.data[self.network.p_reward]
-		x_value_error = self.simulator.data[self.network.p_value_error]
-		x_actor_error = self.simulator.data[self.network.p_actor_error]
-
+		# x_reward = self.simulator.data[self.network.p_reward]
+		# x_value_error = self.simulator.data[self.network.p_value_error]
+		# x_actor_error = self.simulator.data[self.network.p_actor_error]
 		action_probs = scipy.special.softmax(x_actor[-1] / self.temperature)
 		action = self.rng.choice(np.arange(self.n_actions), p=action_probs)
-
 		# print(f"turn (now) \t {np.argmax(x_state[-1])}")
+		# print(f"state (now) \t {a_state[-1]}")
+		# print(f"state (now) \t {x_state[-1]}")
 		# print(f"critic (now) \t {x_critic[-1][0]:.5f}")
 		# print(f"critic (past) \t {x_critic_delayed[-1][0]:.5f}")
 		# print(f"value error \t {x_value_error[-1][0]:.5f}")
 		# print(f"actor values {x_actor[-1]}")
-		print(f"action_probs \t {action_probs}")
+		# print(f"action_probs \t {action_probs}")
 		# print(f"current action \t {action}")
 		# print(f"actor error \t {x_actor_error[-1]}")
-
-		# return 0
-		# return self.rng.randint(0, self.n_actions)
-		return action
+		return action, action_probs
 
 	def move(self, game):
 		game_state = self.get_state(game)
 		# add the game state to the network's state input
 		self.state_input.set(game_state)
-		# look up the reward from the last turn and add it to the network's reward input
-		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
-		past_reward = rewards[-1] if len(rewards)>0 else 0
-		self.reward_input.set(past_reward)
+		# collect information from the previous turn (reward, action, action probs)
+		# and use them as inputs to the network on this turn (for learning)
+		self.past_reward_input.append(self.get_rewards(game))
 		# turn learning on/off, depending on the situation
-		current_turn = len(game.investor_give) if self.player=='investor' else len(game.investor_give)-1
-		learning = 1  # on by default
-		if not game.train: learning=0
-		if current_turn==0: learning=2
-		if current_turn==5: learning=3
-		self.learning_input.set(learning)
-		# simulate the network with these inputs, collect the action output, and set the learner's state accordingly 
-		action = self.simulate_action()
-		# save the chosen action for input in the next turn
-		self.past_action_input.set(action)
+		self.learning_input.set(self.get_learning(game))
+		# simulate the network with these inputs and collect the action outputs
+		action, action_probs = self.simulate_action()
+		# save the action probabilities and the chosen action
+		self.past_action_input.append(action)
+		self.past_probs_input.append(action_probs)
 		# convert action to generosity
 		self.state = action / (self.n_actions-1)
 		# translate action into environment-appropriate signal
@@ -619,23 +640,28 @@ class NengoActorCritic():
 		keep = int(coins - give)
 		return give, keep
 
+	def get_rewards(self, game):
+		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
+		reward = rewards[-1] if len(rewards)>0 else 0
+		return reward
+
+	def get_learning(self, game):
+		current_turn = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
+		learning = 1  # on by default
+		if not game.train: learning=0
+		if current_turn==0: learning=2
+		if current_turn>=5: learning=3
+		return learning
+
 	def learn(self, game):
 		# Learning rules are applied online based on per-turn rewards, so most update happens in the move() step
 		# However, we must run one final turn of simulation to permit learning on the last turn.
 		# Learner and fixed agents will not make any additional moves that are added to the game history,
 		# but the moves recorded on the last turn will be given an opportunity of affect weight update through PES
 		give, keep = self.move(game)
+		# give, keep = self.move(game)
 		# save weights for the next game
 		self.d_actor = self.simulator.data[self.network.p_d_actor][-1]  
 		self.d_critic = self.simulator.data[self.network.p_d_critic][-1]
 		# reduce exploration
 		self.temperature *= self.temperature_decay
-
-
-
-
-
-
-
-
-
