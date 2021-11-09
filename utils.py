@@ -41,9 +41,6 @@ def play_game(game, investor, trustee):
 		game.trustee_state.append(trustee.state)
 		game.investor_reward.append(i_keep+t_give)
 		game.trustee_reward.append(t_keep)
-		# if game.train:
-		# 	investor.learn(game)
-		# 	trustee.learn(game)
 	if game.train:
 		investor.learn(game)
 		trustee.learn(game)

@@ -86,7 +86,7 @@ class adaptive():
 	def update_state(self, game):
 		if self.ID == "cooperate":
 			if self.player == 'investor':   #  trustee should learn to cooperate on turn 0-4
-				self.state = 1 if (len(game.investor_gen)==0 or game.trustee_gen[-1]>=self.thr_trustee) else 0
+				self.state = 1 if (len(game.investor_gen)==0 or game.trustee_gen[-1]>=self.thr_trustee) else 0.1
 			elif self.player == 'trustee':
 				self.state = 0.5  #  investor should learn to cooperate on turn 0-4
 		if self.ID == "attrition":
