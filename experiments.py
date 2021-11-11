@@ -127,26 +127,26 @@ def test_adaptivity(learner_type, n_learners=100, n_train=1000, n_test=100, seed
 	fixed_agents = [adaptive('investor', 'cooperate')]
 	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "cooperate")
 
-	# '''test defection, investor'''
-	# fixed_agents = [adaptive('trustee', 'defect')]
-	# train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "defect")
+	'''test defection, investor'''
+	fixed_agents = [adaptive('trustee', 'defect')]
+	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "defect")
 
-	# '''test defection, trustee'''
-	# fixed_agents = [adaptive('investor', 'defect')]
-	# train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "defect")
+	'''test defection, trustee'''
+	fixed_agents = [adaptive('investor', 'defect')]
+	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "defect")
 
-	# '''test gifting, investor'''
-	# fixed_agents = [adaptive('trustee', 'gift')]
-	# train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "gift")
+	'''test gifting, investor'''
+	fixed_agents = [adaptive('trustee', 'gift')]
+	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "gift")
 
-	# '''test gifting, trustee'''
-	# fixed_agents = [adaptive('investor', 'gift')]
-	# train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "gift")
+	'''test gifting, trustee'''
+	fixed_agents = [adaptive('investor', 'gift')]
+	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "gift")
 
-	# '''test attrition, investor'''
-	# fixed_agents = [adaptive('trustee', 'attrition')]
-	# train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "attrition")
+	'''test attrition, investor'''
+	fixed_agents = [adaptive('trustee', 'attrition')]
+	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "attrition")
 
-	# '''test attrition, trustee'''
-	# fixed_agents = [adaptive('investor', 'attrition')]
-	# train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "attrition")
+	'''test attrition, trustee'''
+	fixed_agents = [adaptive('investor', 'attrition')]
+	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "attrition")

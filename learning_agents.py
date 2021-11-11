@@ -34,7 +34,8 @@ class ActorCritic():
 			return x
 
 	def __init__(self, player, seed=0, n_inputs=5, n_actions=11, ID="actor-critic",
-			critic_function='V', temperature=1, temperature_decay=1, gamma=0.99, n_neurons=100, learning_rate=1e-3):
+			critic_function='V', update='discounted-sum',
+			temperature=1, temperature_decay=1, gamma=0.99, n_neurons=100, learning_rate=1e-3):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -47,12 +48,15 @@ class ActorCritic():
 		self.n_actions = n_actions
 		self.n_neurons = n_neurons
 		self.critic_function = critic_function
+		self.update = update
 		torch.manual_seed(seed)
 		self.actor = self.Actor(n_neurons, n_inputs, self.n_actions)
 		if critic_function=='V':  # state-value
 			self.critic = self.Critic(n_neurons, n_inputs, 1)
+			self.eligibility = np.zeros((self.n_inputs, 1))
 		elif critic_function=='Q':  # action-value
 			self.critic = self.Critic(n_neurons, n_inputs + n_actions, 1)
+			self.eligibility = np.zeros((self.n_inputs, self.n_actions))
 		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), self.learning_rate)
 		self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), self.learning_rate)
 		self.loss_function = torch.nn.MSELoss()
@@ -123,28 +127,41 @@ class ActorCritic():
 
 	def learn(self, game):
 		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
-		# return for each timestep is the discounted sum of all future rewards
-		returns = []
-		discounted_sum = 0
-		for t in np.arange(game.turns-1, -1, -1):  # loop through reward history backwards
-			discounted_sum = rewards[t] + self.gamma * discounted_sum
-			ret = torch.FloatTensor([discounted_sum]).squeeze()
-			returns.insert(0, ret)  # append to beginning of list
-		# return for each timestep is the immediate reward (this does not train trustees appropriately)
-		# returns = [torch.FloatTensor([ret]).squeeze() for ret in rewards]
-		# Calculate the loss values to update our network
-		history = zip(self.action_probs_history, self.critic_value_history, returns)
-		actor_losses = []
-		critic_losses = []
-		for log_prob, val, ret in history:
-			# At this point in history, the critic estimated that we would get a total reward = `value` in the future.
-			# We took an action with log probability of `log_prob` and ended up recieving a total reward = `ret`.
-			# The actor must be updated so that it predicts an action that leads to
-			# high rewards (compared to critic's estimate) with high probability.
-			diff = ret - val
-			actor_losses.append(-log_prob * diff)  # actor loss
-			# The critic must be updated so that it predicts a better estimate of the future rewards.
-			critic_losses.append(self.loss_function(ret, val))
+		if self.update=='discounted-sum':
+			# return for each timestep is the discounted sum of all future rewards
+			returns = []
+			discounted_sum = 0
+			for t in np.arange(game.turns-1, -1, -1):  # loop through reward history backwards
+				discounted_sum = rewards[t] + self.gamma * discounted_sum
+				ret = torch.FloatTensor([discounted_sum]).squeeze()
+				returns.insert(0, ret)  # append to beginning of list
+			# return for each timestep is the immediate reward (this does not train trustees appropriately)
+			# returns = [torch.FloatTensor([ret]).squeeze() for ret in rewards]
+			# Calculate the loss values to update our network
+			history = zip(self.action_probs_history, self.critic_value_history, returns)
+			actor_losses = []
+			critic_losses = []
+			for log_prob, val, ret in history:
+				# At this point in history, the critic estimated that we would get a total reward = `value` in the future.
+				# We took an action with log probability of `log_prob` and ended up recieving a total reward = `ret`.
+				# The actor must be updated so that it predicts an action that leads to
+				# high rewards (compared to critic's estimate) with high probability.
+				diff = ret - val
+				actor_losses.append(-log_prob * diff)  # actor loss
+				# The critic must be updated so that it predicts a better estimate of the future rewards.
+				critic_losses.append(self.loss_function(ret, val))
+		# elif self.update=='sarsa-lambda':
+		# 	for t in np.arange(game.turns):
+		# 		state = self.state_history[t]
+		# 		action = self.action_history[t]
+		# 		reward = rewards[t]
+		# 		value = self.Q[state, action]
+		# 		next_state = self.state_history[t+1] if t<game.turns-1 else None
+		# 		next_action = self.action_history[t+1] if t<game.turns-1 else None
+		# 		target = reward + self.Q[next_state, next_action] if t<game.turns-1 else reward
+		# 		delta = self.learning_rate * (target - value)
+		# 		self.z *= self.lam * self.gamma
+		# 		self.z[state, action] += 1
 		actor_loss = torch.sum(torch.FloatTensor(actor_losses))
 		critic_loss = torch.sum(torch.FloatTensor(critic_losses))
 		loss = actor_loss + critic_loss
@@ -163,20 +180,20 @@ class ActorCritic():
 class InstanceBased():
 
 	class Chunk():
-		def __init__(self, state, action, reward, value, turn, d=0.5, epsilon=0.3):
+		def __init__(self, state, action, reward, value, turn, decay=0.5, epsilon=0.3):
 			self.state = state
 			self.action = action
 			self.reward = reward
 			self.value = value
 			self.triggers = [turn]
-			self.d = d  # decay rate for activation
+			self.decay = decay  # decay rate for activation
 			self.epsilon = epsilon  # gaussian noise added to activation
 			self.activation = None  # current activation, set when populating working memory
 
 		def set_activation(self, turn, rng):
 			activation = 0
 			for t in self.triggers:
-				activation += (turn - t)**self.d 
+				activation += (turn - t)**(-self.decay)
 			self.activation = np.log(activation) + rng.logistic(loc=0.0, scale=self.epsilon)
 
 	def __init__(self, player, seed=0, n_inputs=5, n_actions=11, ID="instance-based",
@@ -271,28 +288,28 @@ class InstanceBased():
 						self.working_memory.append(chunk)
 
 	def select_action(self, game_state):
-		# if there are no chunks in working memory, select a random action
 		if len(self.working_memory)==0:
+			# if there are no chunks in working memory, select a random action
 			best_action = self.rng.randint(0, self.n_actions) / (self.n_actions-1)
 		elif self.rng.uniform(0,1)<self.epsilon:
+			# epsilon random selection for exploration
 			best_action = self.rng.randint(0, self.n_actions) / (self.n_actions-1)
-		# choose an action based on the activation, similarity, reward, and/or value of chunks in working memory
-		elif self.select_method=="max-blended-value" or self.select_method=="softmax-blended-value":
+		else:
+			# choose an action based on the activation, similarity, reward, and/or value of chunks in working memory
 			# collect chunks by actions
 			actions = {}
 			for chunk in self.working_memory:
-				if chunk.action in actions:
-					actions[chunk.action]['activations'].append(chunk.activation)
-					actions[chunk.action]['rewards'].append(chunk.reward)
-					actions[chunk.action]['values'].append(chunk.value)
-				else:
-					actions[chunk.action] = {'activations':[chunk.activation], 'rewards':[chunk.reward], 'values': [chunk.value], 'blended': None}
+				if chunk.action not in actions:
+					actions[chunk.action] = {'activations':[], 'rewards':[], 'values': [], 'blended': None}
+				actions[chunk.action]['activations'].append(chunk.activation)
+				actions[chunk.action]['rewards'].append(chunk.reward)
+				actions[chunk.action]['values'].append(chunk.value)
 			# compute the blended value for each potential action as the sum of values weighted by activation
-			for key in actions.keys():
-				actions[key]['blended'] = np.average(actions[key]['values'], weights=actions[key]['activations'])
+			for action in actions.keys():
+				actions[action]['blended'] = np.average(actions[action]['values'], weights=actions[action]['activations'])
 			if self.select_method=="max-blended-value":
 				# choose the action with the highest blended value
-				best_action = max(actions, key=lambda v: actions[v]['blended'])
+				best_action = max(actions, key=lambda action: actions[action]['blended'])
 			elif self.select_method=="softmax-blended-value":
 				# choose the action with probability proportional to the blended value
 				arr_actions = np.array([a for a in actions])
@@ -301,7 +318,7 @@ class InstanceBased():
 				action_probs = scipy.special.softmax(arr_values / temperature)
 				best_action = self.rng.choice(arr_actions, p=action_probs)
 		# create a new chunk for the chosen action, populate with more information in learn()
-		new_chunk = self.Chunk(state=game_state, action=None, reward=None, value=None, turn=self.turn)
+		new_chunk = self.Chunk(state=game_state, action=None, reward=None, value=0, turn=self.turn)
 		self.learning_memory.append(new_chunk)
 		return best_action
 
@@ -322,9 +339,10 @@ class InstanceBased():
 	def learn(self, game):
 		# update value of new chunks according to some scheme
 		actions = game.investor_gen if self.player=='investor' else game.trustee_gen
-		# actions = np.nan_to_num(actions, nan=0.0)  # convert skipped turns to action "0"
 		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
-		for t in np.arange(game.turns-1, -1, -1):  # loop through chunk history backwards
+		# for t in np.arange(game.turns):  # loop through chunk history forward
+		for t in np.arange(game.turns)[::-1]:  # loop through chunk history backwards
+		# for t in np.arange(game.turns-1, -1, -1)
 			chunk = self.learning_memory[t]
 			chunk.action = actions[t]
 			chunk.reward = rewards[t]
@@ -336,16 +354,15 @@ class InstanceBased():
 				chunk.value = chunk.reward if t==(game.turns-1) else chunk.reward + self.learning_memory[t+1].reward
 			elif self.value_method=='next-value':
 				chunk.value = chunk.reward if t==(game.turns-1) else chunk.reward + self.learning_memory[t+1].value
-		# add new chunks to declarative memory
 		for new_chunk in self.learning_memory:
-			# Check if the chunk has identical (state, action) to a previous chunk in declarative memory.
+			# Check if the new chunk has identical (state, action) to a previous chunk in declarative memory.
 			# If so, update that chunk's triggers, rather than adding a new chunk to declarative memory
 			add_new_chunk = True
 			for old_chunk in self.declarative_memory:
 				if np.all(new_chunk.state == old_chunk.state) and \
-						new_chunk.action == old_chunk.action and \
-						new_chunk.reward == old_chunk.reward and \
-						new_chunk.value == old_chunk.value:
+						  new_chunk.action == old_chunk.action and \
+						  new_chunk.reward == old_chunk.reward and \
+						  new_chunk.value == old_chunk.value:
 					old_chunk.triggers.append(new_chunk.triggers[0])
 					add_new_chunk = False
 					break
@@ -683,8 +700,9 @@ class NengoActorCritic():
 
 class TabularQLearning():
 
-	def __init__(self, player, seed=0, n_inputs=5, n_actions=11, ID="tabular-q-learning",
-			epsilon=1.0, epsilon_decay=0.99, gamma=0.99, learning_rate=1, learn_order='forward'):
+	def __init__(self, player, seed=0, n_inputs=45, n_actions=11, ID="tabular-q-learning",
+			epsilon=1.0, epsilon_decay=0.99, gamma=0.99, lam=0.9, learning_rate=1e0,
+			update_type='TD-0', update_direction='forward'):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -693,18 +711,21 @@ class TabularQLearning():
 		self.n_actions = n_actions
 		self.epsilon = epsilon  # probability of random action, for exploration
 		self.epsilon_decay = epsilon_decay  # per-episode reduction of epsilon
-		self.gamma = gamma
+		self.gamma = gamma  # discount factor
+		self.lam = lam  #  for TD-lambda or SARSA-lambda update
 		self.learning_rate = learning_rate
 		self.Q = np.zeros((n_inputs, n_actions))
-		self.counts = np.zeros((n_inputs, n_actions))
+		self.counts = np.zeros((n_inputs, n_actions))  # visits
+		self.eligibility = np.zeros((n_inputs, n_actions))  # eligibility trace
 		self.state_history = []
 		self.action_history = []
-		self.learn_order = learn_order
+		self.update_type = update_type
+		self.update_direction = update_direction
 		self.state = None
 
 	def reinitialize(self, player):
 		self.__init__(player, self.seed, self.n_inputs, self.n_actions, self.ID,
-			1, self.epsilon_decay, self.gamma, self.learning_rate, self.learn_order)
+			1, self.epsilon_decay, self.gamma, self.lam, self.learning_rate, self.update_type, self.update_direction)
 
 	def new_game(self):
 		self.state_history.clear()
@@ -721,6 +742,7 @@ class TabularQLearning():
 			temperature = 10*self.epsilon
 			action_probs = scipy.special.softmax(Q_state / temperature)
 			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)
+			# action = np.argmax(Q_state)
 		# update the histories for learning
 		self.state_history.append(game_state)
 		self.action_history.append(action)
@@ -737,25 +759,32 @@ class TabularQLearning():
 		if self.n_inputs == 5:
 			current_turn = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
 			game_state = current_turn
+		if self.n_inputs == 45:
+			t = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
+			game_state = 9 * t
+			if t==0:
+				return game_state
+			if self.player == 'investor':
+				my_gen = game.investor_gen[-1]
+				opponent_gen = game.trustee_gen[-1] if not np.isnan(game.trustee_gen[-1]) else 0
+			elif self.player == 'trustee':
+				opponent_gen = game.investor_gen[-1]
+				my_gen = game.trustee_gen[-1] if not np.isnan(game.trustee_gen[-1]) else 0
+			if 0<my_gen<=0.33: game_state +=0
+			if 0.33<my_gen<=0.66: game_state +=3
+			if 0.66<my_gen<=1: game_state +=6
+			if 0<opponent_gen<=0.33: game_state +=0
+			if 0.33<opponent_gen<=0.66: game_state +=1
+			if 0.66<opponent_gen<=1: game_state +=2
+			# print(game_state, t, my_gen, opponent_gen)
 		return game_state
 
 	def learn(self, game):
+		self.epsilon *= self.epsilon_decay
 		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
-		if self.learn_order=='forward':
-			for t in np.arange(game.turns):
-				state = self.state_history[t]
-				next_state = self.state_history[t+1] if t<game.turns-1 else None
-				action = self.action_history[t]
-				if np.isnan(action): raise
-				reward = rewards[t]
-				value = self.Q[state, action]
-				next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
-				self.counts[state, action] += 1
-				alpha = self.learning_rate / self.counts[state, action]
-				# print(state, action, reward, next_state)
-				self.Q[state, action] += alpha * (reward + self.gamma*next_value - value)
-		elif self.learn_order=='backward':
-			for t in np.arange(game.turns)[::-1]:
+		times = np.arange(game.turns) if self.update_direction=='forward' else np.arange(game.turns)[::-1]
+		if self.update_type=='TD-0':
+			for t in times:
 				state = self.state_history[t]
 				next_state = self.state_history[t+1] if t<game.turns-1 else None
 				action = self.action_history[t]
@@ -766,9 +795,9 @@ class TabularQLearning():
 				alpha = self.learning_rate / self.counts[state, action]
 				# print(state, action, reward, next_state)
 				self.Q[state, action] += alpha * (reward + self.gamma*next_value - value)
-		elif self.learn_order=='discounted-sum':
+		elif self.update_type=='MC':
 			discounted_sum = 0
-			for t in np.arange(game.turns)[::-1]:
+			for t in times:
 				discounted_sum = rewards[t] + self.gamma * discounted_sum
 				state = self.state_history[t]
 				next_state = self.state_history[t+1] if t<game.turns-1 else None
@@ -778,9 +807,88 @@ class TabularQLearning():
 				next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
 				self.counts[state, action] += 1
 				alpha = self.learning_rate / self.counts[state, action]
-				# print(state, action, reward, next_state)
 				self.Q[state, action] += alpha * (reward + self.gamma*next_value - value)
-		self.epsilon *= self.epsilon_decay
-
-
-
+		elif self.update_type=='TD-krangle':
+			# https://towardsdatascience.com/reinforcement-learning-td-%CE%BB-introduction-686a5e4f4e60
+			for t in times:
+				state = self.state_history[t]
+				action = self.action_history[t]
+				value = self.Q[state, action]
+				gt_lambda = 0
+				for n in range(1, game.turns-t):
+					gt_tn = 0
+					for r in np.arange(t, t+n):
+						gt_tn += self.gamma**r * rewards[r]
+					state_n = self.state_history[n]
+					action_n = self.action_history[n]
+					gt_tn += self.gamma**n * self.Q[state_n, action_n]
+					gt_lambda += self.lam**(n-1) * gt_tn
+				gt_lambda *= (1 - self.lam)
+				gt_lambda += self.lam**(n-1) * rewards[t]
+				self.counts[state, action] += 1
+				alpha = self.learning_rate / self.counts[state, action]
+				self.Q[state, action] += alpha * (gt_lambda - value)
+				# print(self.Q)
+		elif self.update_type=='TD-krangle2':
+			for t in times:
+				# normal TD-0 update
+				state = self.state_history[t]
+				next_state = self.state_history[t+1] if t<game.turns-1 else None
+				action = self.action_history[t]
+				reward = rewards[t]
+				value = self.Q[state, action]
+				next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
+				self.counts[state, action] += 1
+				alpha = self.learning_rate / self.counts[state, action]
+				self.Q[state, action] += alpha * (reward + self.gamma*next_value - value)
+				# run through history up to this point and do many TD-0 updates
+				for n in np.arange(t)[::-1]:
+					print(n)
+					state = self.state_history[n]
+					next_state = self.state_history[n+1]
+					action = self.action_history[n]
+					reward = rewards[n]
+					value = self.Q[state, action]
+					next_value = np.max(self.Q[next_state])
+					alpha = self.gamma**t * self.learning_rate / self.counts[state, action]
+					self.Q[state, action] += alpha * (reward + self.gamma*next_value - value)
+		elif self.update_type=='TD-krangle3':
+			# for t in times:
+			# 	# normal TD-0 update
+			# 	state = self.state_history[t]
+			# 	next_state = self.state_history[t+1] if t<game.turns-1 else None
+			# 	action = self.action_history[t]
+			# 	reward = rewards[t]
+			# 	value = self.Q[state, action]
+			# 	next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
+			# 	self.counts[state, action] += 1
+			# 	alpha = self.learning_rate / self.counts[state, action]
+			# 	self.Q[state, action] += alpha * (reward + self.gamma*next_value - value)
+			# # one final update based on the total score
+			reward = np.sum(rewards)
+			for t in times:
+				# normal TD-0 update
+				state = self.state_history[t]
+				next_state = self.state_history[t+1] if t<game.turns-1 else None
+				action = self.action_history[t]
+				value = self.Q[state, action]
+				next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
+				self.counts[state, action] += 1
+				alpha = self.learning_rate / self.counts[state, action]
+				self.Q[state, action] += alpha * (reward + self.gamma*next_value - value)
+		elif self.update_type=='TD-lambda':
+			# http://incompleteideas.net/book/ebook/node78.html
+			for t in times:
+				state = self.state_history[t]
+				action = self.action_history[t]
+				reward = rewards[t]
+				value = self.Q[state, action]
+				next_state = self.state_history[t+1] if t<game.turns-1 else None
+				# next_action = self.action_history[t+1] if t<game.turns-1 else None
+				# next_value = self.Q[next_state, next_action] if t<game.turns-1 else 0
+				next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
+				self.counts[state, action] += 1
+				delta = self.learning_rate / self.counts[state, action] * (reward + self.gamma*next_value - value)
+				self.eligibility[state, action] = 1
+				self.Q += delta*self.eligibility
+				self.eligibility *= self.lam * self.gamma
