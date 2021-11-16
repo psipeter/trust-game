@@ -100,16 +100,18 @@ def test_adaptivity(learner_type, n_learners=100, n_train=1000, n_test=100, seed
 			metrics_gen, metrics_score = process_data(data, investors)
 		if learner_plays=='trustee':
 			metrics_gen, metrics_score = process_data(data, trustees)
-		plot_metrics(metrics_gen, metrics_score, learner_plays=learner_plays, name=name)
+		# plot_metrics(metrics_gen, metrics_score, learner_plays=learner_plays, name=name)
 
-	if learner_type=="actor-critic":
-		learners = [ActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="tabular-q-learning":
+		learners = [TabularQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="deep-q-learning":
+		learners = [DeepQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="deep-actor-critic":
+		learners = [DeepActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="instance-based":
 		learners = [InstanceBased('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="nengo-actor-critic":
 		learners = [NengoActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
-	if learner_type=="tabular-q-learning":
-		learners = [TabularQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 
 	'''test turn-to-turn adaptivity, investor'''
 	fixed_agents = [adaptive('trustee', 'turn_based')]
