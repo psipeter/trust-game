@@ -4,69 +4,12 @@ import os
 import torch
 import scipy
 import nengo
-
-import matplotlib.pyplot as plt
-
-def get_n_inputs(representation, player, n_actions, turns=5, coins=10, match=3):
-	if representation=='turn':return turns
-	if representation=='turn-coin':
-		if player=='investor': return turns
-		elif player=='trustee': return turns * (coins * match + 1)
-	if representation=='turn-gen': return turns * n_actions**2
-
-def get_state(player, representation, game, return_type, n_actions=0, dim=0):
-	index = 0
-	t = len(game.investor_give) if player=='investor' else len(game.trustee_give)
-	if representation == 'turn':
-		index = t
-	if representation == "turn-coin":
-		if player=='investor': index = t
-		elif player=='trustee': index = t * (game.coins*game.match+1) + game.investor_give[-1]*game.match
-	if representation == "turn-gen":
-		index = n_actions**2 * t
-		if player == 'investor':
-			if t==0: my_gen = 0
-			else: my_gen = game.investor_gen[-1]
-			if t==0: opponent_gen = 0
-			elif np.isnan(game.trustee_gen[-1]): opponent_gen = 0
-			else: opponent_gen = game.trustee_gen[-1]
-		elif player == 'trustee':
-			opponent_gen = game.investor_gen[-1]
-			if t==0: my_gen = 0
-			elif np.isnan(game.trustee_gen[-1]): my_gen = 0
-			else: my_gen = game.trustee_gen[-1]
-		gen_bins = np.linspace(0, 1, n_actions)
-		for i in range(len(gen_bins)-1):
-			if gen_bins[i] < my_gen <= gen_bins[i+1]:
-				index += n_actions * i
-			if gen_bins[i] < opponent_gen <= gen_bins[i+1]:
-				index += i
-	if return_type=='index':
-		return index
-	if return_type=='one-hot':
-		vector = np.zeros((dim))
-		vector[index] = 1
-		return vector
-	if return_type=='tensor':
-		vector = np.zeros((dim))
-		vector[index] = 1
-		return torch.FloatTensor(vector)
-
-def action_to_coins(player, state, n_actions, game):
-	available = game.coins if player=='investor' else game.investor_give[-1]*game.match  # coins available
-	precise_give = state * available
-	possible_actions = np.linspace(0, available, n_actions).astype(int)
-	action_idx = (np.abs(possible_actions - precise_give)).argmin()
-	action = possible_actions[action_idx]
-	give = action
-	keep = available - action
-	return give, keep, action_idx
+from utils import *
 
 class TabularQLearning():
 
-	def __init__(self, player, seed=0, n_actions=11, ID="tabular-q-learning", representation='turn-coin',
-			explore=100.0, explore_decay=0.99, gamma=0.99, lam=1, learning_rate=1e0,
-			explore_method='boltzmann', update_method='TD-0', update_direction='forward', friendliness=0):
+	def __init__(self, player, seed=0, n_actions=11, ID="tabular-q-learning", representation='turn',
+			explore_method='boltzmann', explore=100, explore_decay=0.995, gamma=0.99, lam=1, learning_rate=1):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -74,27 +17,23 @@ class TabularQLearning():
 		self.representation = representation
 		self.n_inputs = get_n_inputs(representation, player, n_actions)
 		self.n_actions = n_actions
+		self.explore_method = explore_method
 		self.explore = explore  # probability of random action, for exploration
 		self.explore_decay = explore_decay  # per-episode reduction of epsilon
 		self.gamma = gamma  # discount factor
 		self.lam = lam  #  for TD-lambda or SARSA-lambda update
 		self.learning_rate = learning_rate
 		self.Q = np.zeros((self.n_inputs, self.n_actions))
-		self.counts = np.zeros((self.n_inputs, self.n_actions))  # visits
+		self.C = np.zeros((self.n_inputs, self.n_actions))  # visits
 		self.eligibility = np.zeros((self.n_inputs, self.n_actions))  # eligibility trace
 		self.state_history = []
 		self.action_history = []
-		self.explore_method = explore_method
-		self.update_method = update_method
-		self.update_direction = update_direction
-		self.friendliness = friendliness
 		self.state = None
 		self.episode = 0
 
 	def reinitialize(self, player):
 		self.__init__(player, self.seed, self.n_actions, self.ID, self.representation, 
-			self.explore, self.explore_decay, self.gamma, self.lam, self.learning_rate,
-			self.explore_method, self.update_method, self.update_direction, self.friendliness)
+			self.explore_method,self.explore, self.explore_decay, self.gamma, self.lam, self.learning_rate)
 
 	def new_game(self):
 		self.state_history.clear()
@@ -115,8 +54,12 @@ class TabularQLearning():
 		elif self.explore_method=='boltzmann':
 			temperature = self.explore*np.power(self.explore_decay, self.episode)
 			action_probs = scipy.special.softmax(Q_state / temperature)
-			print(action_probs)
-			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)			
+			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)
+		elif self.explore_method=='upper-confidence-bound':
+			ucb = np.sqrt(2*np.log(self.episode)/(self.C[game_state]+np.ones((self.n_actions))))
+			values = Q_state + ucb
+			idx_max = np.argwhere(values==np.max(values)).flatten()  # get indices where the values are at a maximum
+			action = self.rng.choice(idx_max)
 		else:
 			action = np.argmax(Q_state)
 		# update the histories for learning
@@ -129,76 +72,198 @@ class TabularQLearning():
 
 	def learn(self, game):
 		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
-		rewards_other = game.trustee_reward if self.player=='investor' else game.investor_reward
-		times = np.arange(game.turns) if self.update_direction=='forward' else np.arange(game.turns)[::-1]
-		if self.update_method=='TD-0':
-			for t in times:
-				state = self.state_history[t]
-				next_state = self.state_history[t+1] if t<game.turns-1 else None
-				action = self.action_history[t]
-				reward = rewards[t]
-				reward_other = rewards_other[t]
-				R = (1-self.friendliness)*reward + self.friendliness*reward_other
-				value = self.Q[state, action]
-				next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
-				self.counts[state, action] += 1
-				alpha = self.learning_rate / self.counts[state, action]
-				# print(state, action, reward, next_state)
-				self.Q[state, action] += alpha * (R + self.gamma*next_value - value)
-		elif self.update_method=='MC':
-			discounted_sum = 0
-			for t in times:
-				discounted_sum = rewards[t] + self.gamma * discounted_sum
-				state = self.state_history[t]
-				next_state = self.state_history[t+1] if t<game.turns-1 else None
-				action = self.action_history[t]
-				reward = discounted_sum
-				value = self.Q[state, action]
-				next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
-				self.counts[state, action] += 1
-				alpha = self.learning_rate / self.counts[state, action]
-				self.Q[state, action] += alpha * (reward + self.gamma*next_value - value)
-		elif self.update_method=='TD-krangle':
-			# https://towardsdatascience.com/reinforcement-learning-td-%CE%BB-introduction-686a5e4f4e60
-			for t in times:
-				state = self.state_history[t]
-				action = self.action_history[t]
-				value = self.Q[state, action]
-				gt_lambda = 0
-				for n in range(1, game.turns-t):
-					gt_lambda += np.power(self.lam, n-1) * self.compute_gt_tn(t, t+n, rewards)
-				gt_lambda *= (1 - self.lam)
-				gt_lambda += np.power(self.lam, game.turns-t-1) * rewards[t]
-				self.counts[state, action] += 1
-				alpha = self.learning_rate / self.counts[state, action]
-				self.Q[state, action] += alpha * (gt_lambda - value)
-		elif self.update_method=='TD-lambda':
-			# http://incompleteideas.net/book/ebook/node78.html
-			for t in times:
-				state = self.state_history[t]
-				action = self.action_history[t]
-				reward = rewards[t]
-				value = self.Q[state, action]
-				next_state = self.state_history[t+1] if t<game.turns-1 else None
-				next_action = self.action_history[t+1] if t<game.turns-1 else None
-				next_value = self.Q[next_state, next_action] if t<game.turns-1 else 0
-				# next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
-				self.counts[state, action] += 1
-				delta = self.learning_rate / self.counts[state, action] * (reward + self.gamma*next_value - value)
-				self.eligibility *= self.lam * self.gamma
-				self.eligibility[state, action] += 1
-				self.Q += delta*self.eligibility
+		for t in np.arange(game.turns):
+			state = self.state_history[t]
+			next_state = self.state_history[t+1] if t<game.turns-1 else None
+			action = self.action_history[t]
+			next_action = self.action_history[t+1] if t<game.turns-1 else None
+			reward = rewards[t]
+			value = self.Q[state, action]
+			# next_value = np.max(self.Q[next_state]) if t<game.turns-1 else 0
+			next_value = self.Q[next_state, next_action] if t<game.turns-1 else 0
+			self.C[state, action] += 1
+			alpha = self.learning_rate / self.C[state, action]
+			# alpha = self.learning_rate
+			self.Q[state, action] += alpha * (reward + self.gamma*next_value - value)
 
-	def compute_gt_tn(self, start, end, rewards):
-		gt_tn = 0
-		for t in np.arange(start, end):
-			gt_tn += np.power(self.gamma, t) * rewards[t]
-		# state_end = self.state_history[end]
-		# action_end = self.action_history[end]
-		# gt_tn += np.power(self.gamma, end) * self.Q[state_end, action_end]
-		# gt_tn += np.power(self.gamma, end) * np.max(self.Q[state_end, :])
-		gt_tn += np.power(self.gamma, end) * rewards[end]
-		return gt_tn
+
+
+class TabularActorCritic():
+
+	def __init__(self, player, seed=0, n_actions=11, ID="tabular-actor-critic", representation='turn',
+			explore_method='boltzmann', explore=100, explore_decay=0.995, gamma=0.99, critic_rate=1e-3, actor_rate=1e-3):
+		self.player = player
+		self.ID = ID
+		self.seed = seed
+		self.rng = np.random.RandomState(seed=seed)
+		self.representation = representation
+		self.n_inputs = get_n_inputs(representation, player, n_actions)
+		self.n_actions = n_actions
+		self.explore_method = explore_method
+		self.explore = explore
+		self.explore_decay = explore_decay
+		self.gamma = gamma  # discount factor
+		self.critic_rate = critic_rate
+		self.actor_rate = actor_rate
+		self.critic = np.zeros((self.n_inputs, self.n_actions))
+		# self.critic = np.zeros((self.n_inputs, 1))
+		self.actor = np.zeros((self.n_inputs, self.n_actions))
+		self.C = np.zeros((self.n_inputs, self.n_actions))
+		self.state_history = []
+		self.action_history = []
+		self.action_probs_history = []
+		self.state = None
+		self.episode = 0
+
+	def reinitialize(self, player):
+		self.__init__(player, self.seed, self.n_actions, self.ID, self.representation, 
+			self.explore_method,self.explore, self.explore_decay, self.gamma, self.critic_rate, self.actor_rate)
+
+	def new_game(self):
+		self.state_history.clear()
+		self.action_history.clear()
+		self.action_probs_history.clear()
+		self.episode += 1
+
+	def move(self, game):
+		game_state = get_state(self.player, self.representation, game=game, return_type='index', n_actions=self.n_actions)
+		# Compute action probabilities for the current state
+		action_values = self.actor[game_state]
+		critic_values = self.critic[game_state]
+		# Sample action from actor probability distribution
+		if self.explore_method=='boltzmann':
+			temperature = self.explore*np.power(self.explore_decay, self.episode)
+			action_probs = scipy.special.softmax(action_values / temperature)
+			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)			
+		# translate action into environment-appropriate signal
+		self.state = action / (self.n_actions-1)
+		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
+		# update the histories for learning
+		self.state_history.append(game_state)
+		self.action_history.append(action_idx)
+		self.action_probs_history.append(np.log(action_probs[action_idx]))
+		# self.action_probs_history.append(action_probs)
+		return give, keep
+
+	def learn(self, game):
+		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
+		for t in np.arange(game.turns):
+			state = self.state_history[t]
+			next_state = self.state_history[t+1] if t<game.turns-1 else None
+			action = self.action_history[t]
+			next_action = self.action_history[t+1] if t<game.turns-1 else None
+			log_prob = self.action_probs_history[t]
+			reward = rewards[t]
+			value = self.critic[state, action]
+			next_value = self.critic[next_state, next_action] if t<game.turns-1 else 0
+			# value = self.critic[state]
+			# next_value = self.critic[next_state] if t<game.turns-1 else 0
+			self.C[state, action] += 1
+			alpha_actor = self.actor_rate / self.C[state, action]
+			alpha_critic = self.critic_rate / self.C[state, action]
+			# delta = np.clip(reward + self.gamma*next_value - value, -10, 10)
+			delta = reward + self.gamma*next_value - value
+			actor_loss = alpha_actor * -log_prob * delta
+			critic_loss = alpha_critic * delta**2
+			self.actor[state, action] += actor_loss
+			self.critic[state, action] += critic_loss
+			# self.critic[state] += critic_loss
+			# for a in range(self.n_actions):
+			# 	if a==action: self.actor[state, a] += alpha_actor*delta*(1-self.action_probs_history[t][a])
+			# 	else: self.actor[state, a] += alpha_actor*-delta*self.action_probs_history[t][a]
+
+
+class TabularModelBased():
+
+	def __init__(self, player, seed=0, n_actions=11, ID="tabular-model-based", representation='turn-coin',
+			explore_method='boltzmann', explore=100, explore_decay=0.99, gamma=0.99, learning_rate=1e-3):
+		self.player = player
+		self.ID = ID
+		self.seed = seed
+		self.rng = np.random.RandomState(seed=seed)
+		self.representation = representation
+		self.n_inputs = get_n_inputs(representation, player, n_actions)
+		self.n_actions = n_actions
+		self.explore = explore  # probability of random action, for exploration
+		self.explore_method = explore_method
+		self.explore_decay = explore_decay  # per-episode reduction of epsilon
+		self.gamma = gamma  # discount factor
+		self.learning_rate = learning_rate
+		self.Q = np.zeros((self.n_inputs, self.n_actions))  # values
+		self.T = np.zeros((self.n_inputs, self.n_actions, self.n_inputs))  # transition probabilities
+		self.C = np.zeros((self.n_inputs, self.n_actions, self.n_inputs))  # visits
+		self.state_history = []
+		self.action_history = []
+		self.state = None
+		self.episode = 0
+
+	def reinitialize(self, player):
+		self.__init__(player, self.seed, self.n_actions, self.ID, self.representation, 
+			self.explore_method, self.explore, self.explore_decay, self.gamma, self.learning_rate)
+
+	def new_game(self):
+		self.state_history.clear()
+		self.action_history.clear()
+		self.episode += 1
+
+	def move(self, game):
+		game_state = get_state(self.player, self.representation, game=game, return_type='index', n_actions=self.n_actions)
+		# Compute action probabilities for the current state
+		Q_state = self.Q[game_state]
+		# Sample action from q-values in the current state
+		if self.explore_method=='epsilon':
+			epsilon = self.explore*np.power(self.explore_decay, self.episode)
+			if self.rng.uniform(0, 1) < epsilon:
+				action = self.rng.randint(self.n_actions)
+			else:
+				action = np.argmax(Q_state)
+		elif self.explore_method=='boltzmann':
+			temperature = self.explore*np.power(self.explore_decay, self.episode)
+			action_probs = scipy.special.softmax(Q_state / temperature)
+			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)			
+		elif self.explore_method=='upper-confidence-bound':
+			ucb = np.sqrt(2*np.log(self.episode)/(np.sum(self.C[game_state], axis=1)+np.ones((self.n_actions))))
+			values = Q_state + ucb
+			idx_max = np.argwhere(values==np.max(values)).flatten()  # get indices where the values are at a maximum
+			action = self.rng.choice(idx_max)
+		else:
+			action = np.argmax(Q_state)
+		# update the histories for learning
+		self.state_history.append(game_state)
+		# translate action into environment-appropriate signal
+		self.state = action / (self.n_actions-1)
+		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
+		self.action_history.append(action_idx)
+		return give, keep
+
+	def learn(self, game):
+		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
+		for t in np.arange(game.turns):
+			state = self.state_history[t]
+			next_state = self.state_history[t+1] if t<game.turns-1 else 0
+			action = self.action_history[t]
+			next_action = self.action_history[t+1] if t<game.turns-1 else None
+			reward = rewards[t]
+			value = self.Q[state, action]
+			# next_value = self.Q[next_state, next_action] if t<game.turns-1 else 0
+			self.C[state, action, next_state] += 1
+			self.T[state, action, :] = self.C[state, action, :] / np.sum(self.C[state, action])
+			alpha = self.learning_rate # / np.sum(self.C[state, action])
+			weighted_next_value = 0
+			for s in range(self.n_inputs):
+				weighted_next_value += self.T[state, action, s] * np.max(self.Q[s])
+			self.Q[state, action] += alpha * (reward + self.gamma*weighted_next_value - value)
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -690,6 +755,239 @@ class InstanceBased():
 			# Otherwise, add a new chunk to declarative memory
 			if add_new_chunk:
 				self.declarative_memory.append(new_chunk)
+
+
+
+
+
+
+
+
+
+
+
+
+
+class NengoQLearning():
+
+	class StateInput():
+		def __init__(self, n_inputs):
+			self.state = np.zeros((n_inputs))
+		def set(self, state):
+			self.state = state
+		def get(self):
+			return self.state
+
+	class PastRewardInput():
+		def __init__(self):
+			self.history = []
+		def set(self, player, game):
+			rewards = game.investor_reward if player=='investor' else game.trustee_reward
+			reward = rewards[-1] if len(rewards)>0 else 0
+			self.history.append(reward)
+		def clear(self):
+			self.history.clear()
+		def get(self):
+			return self.history[-1] if len(self.history)>0 else 0
+
+	class PastActionInput():
+		def __init__(self):
+			self.history = []
+		def set(self, action):
+			self.history.append(action)
+		def clear(self):
+			self.history.clear()
+		def get(self):
+			return self.history[-1] if len(self.history)>0 else 0
+
+
+	class LearningInput():
+		def __init__(self):
+			self.learning = 0
+		def set(self, player, game):
+			current_turn = len(game.investor_give) if player=='investor' else len(game.trustee_give)
+			self.learning = 1  # on by default
+			if not game.train: self.learning = 0  # testing
+			if current_turn==0: self.learning = 2  # first turn
+			if current_turn>=5: self.learning = 3  # last turn
+		def get(self):
+			return self.learning
+
+
+	# implement a one-timestep delay
+	class Delay(nengo.synapses.Synapse):
+		def __init__(self, size_in=1):
+			super().__init__(default_size_in=size_in, default_size_out=size_in)
+		def make_state(self, shape_in, shape_out, dt, dtype=None, y0=None):
+			return {}
+		def make_step(self, shape_in, shape_out, dt, rng, state=None):
+			x_past = np.zeros((shape_in[0]))
+			def step_delay(t, x, x_past=x_past):
+				result = x_past
+				x_past[:] = x
+				return result
+			return step_delay
+
+	def __init__(self, player, seed=0, n_actions=5, ID="nengo-q-learning", representation='turn-coin',
+			learning_rate=1e-6, gamma=0.99, n_neurons=200, dt=1e-3, tau=None, turn_time=1e-3,
+			encoder_method='one-hot', explore_method='boltzmann', explore=100, explore_decay=0.99):
+		self.player = player
+		self.ID = ID
+		self.seed = seed
+		self.rng = np.random.RandomState(seed=seed)
+		self.representation = representation
+		self.n_inputs = get_n_inputs(representation, player, n_actions, extra_turn=1)
+		self.n_actions = n_actions
+		self.n_neurons = n_neurons
+		self.dt = dt
+		self.encoder_method = encoder_method
+		self.learning_rate = learning_rate
+		self.gamma = gamma  # discount
+		self.tau = tau  # synaptic time constant
+		self.delay_activity = self.Delay(size_in=n_neurons)
+		self.delay_value = self.Delay(size_in=1)
+		self.turn_time = turn_time
+		self.explore_method = explore_method
+		self.explore = explore
+		self.explore_decay = explore_decay
+		self.state_input = self.StateInput(self.n_inputs)
+		self.reward_input = self.PastRewardInput()
+		self.action_input = self.PastActionInput()
+		self.learning_input = self.LearningInput()
+		self.encoders, self.intercepts = self.build_encoders()
+		self.d_critic = np.zeros((self.n_actions, self.n_neurons))
+		self.state = None
+		self.network = None
+		self.simulator = None
+		self.episode = 0
+
+	def reinitialize(self, player):
+		self.__init__(player, self.seed, self.n_actions, self.ID, self.representation,
+			self.learning_rate, self.gamma, self.n_neurons, self.dt, self.tau, self.turn_time,
+			self.encoder_method, self.explore_method, self.explore, self.explore_decay)
+
+	def new_game(self):
+		self.network = self.build_network()
+		self.simulator = nengo.Simulator(self.network, dt=self.dt, progress_bar=False)
+		self.reward_input.clear()
+		self.action_input.clear()
+		self.episode += 1
+
+	def build_encoders(self):
+		if self.encoder_method=='uniform':
+			intercepts = nengo.Default
+			encoders = nengo.Default
+		elif self.encoder_method=='one-hot':
+			intercepts = nengo.dists.Uniform(0.1, 1)
+			encs = []
+			for dim in range(self.n_inputs):
+				enc = np.zeros((self.n_inputs))
+				enc[dim] = 1
+				encs.append(enc)
+			encoders = []
+			for i in range(self.n_neurons):
+				encoders.append(encs[i%len(encs)])
+			# encoders = nengo.dists.Choice(encs)
+		return encoders, intercepts
+
+	def build_network(self):
+		network = nengo.Network(seed=self.seed)
+		with network:
+
+			class CriticNode(nengo.Node):
+				def __init__(self, n_neurons, n_actions, d=None, learning_rate=0, gamma=0.99):
+					self.n_neurons = n_neurons
+					self.n_actions = n_actions
+					self.size_in = 2*n_neurons + 3
+					self.size_out = n_actions
+					self.d = d if np.any(d) else np.zeros((n_neurons, n_actions))
+					self.learning_rate = learning_rate
+					self.gamma = gamma
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					activity = x[:self.n_neurons]  # current synaptic activities from "state" population
+					past_activity = x[self.n_neurons: 2*self.n_neurons]  # delayed synaptic activities from "state" population
+					past_action = int(x[-3])  # action chosen on the previous turn
+					past_reward = x[-2]  # reward associated with past activities
+					learning = x[-1]  # gating signal for updating decoders
+					value = np.dot(activity, self.d)  # current state of the critic
+					past_value = np.dot(past_activity, self.d)  # previous state of the critic
+					# calculate error signal for PES, gated by learning signal
+					if learning==0: error = 0 # no learning during testing
+					# elif learning==1: error = past_reward + self.gamma*value[past_action] - past_value[past_action]  # TODO: SARSA
+					elif learning==1: error = past_reward + self.gamma*np.max(value) - past_value[past_action]  # normal RL update
+					elif learning==2: error = 0  # no learning during first turn (no reward signal)
+					elif learning==3: error = past_reward - past_value[past_action] # the target value in the 6th turn is simply the reward
+					# update based on delayed activities and the associated value error
+					# print(t, int(np.sum(past_activity)), past_value)
+					delta = (self.learning_rate / self.n_neurons) * past_activity * error
+					self.d[:,past_action] += delta
+					return value  # return the current state of the critic (Q-value)
+
+			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=self.n_inputs)
+			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=1)
+			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=1)
+			learning_input = nengo.Node(lambda t, x: self.learning_input.get(), size_in=2, size_out=1)
+
+			state = nengo.Ensemble(self.n_neurons, self.n_inputs, intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
+			critic = CriticNode(self.n_neurons, self.n_actions, d=self.d_critic, learning_rate=self.learning_rate, gamma=self.gamma)
+
+			nengo.Connection(state_input, state, synapse=None)
+			nengo.Connection(state.neurons, critic[:self.n_neurons], synapse=None)
+			nengo.Connection(state.neurons, critic[self.n_neurons: 2*self.n_neurons], synapse=self.delay_activity)
+			nengo.Connection(past_action, critic[-3], synapse=None)
+			nengo.Connection(past_reward, critic[-2], synapse=None)
+			nengo.Connection(learning_input, critic[-1], synapse=None)
+
+			network.p_state = nengo.Probe(state.neurons, synapse=None)
+			network.p_critic = nengo.Probe(critic, synapse=None)
+			network.d_critic = critic.d
+
+		return network
+
+	def simulate_action(self):
+		self.simulator.run(self.turn_time)
+		x_critic = self.simulator.data[self.network.p_critic][-1]
+		if self.explore_method=='epsilon':
+			epsilon = self.explore*np.power(self.explore_decay, self.episode)
+			if self.rng.uniform(0, 1) < epsilon:
+				action = self.rng.randint(self.n_actions)
+			else:
+				action = np.argmax(x_critic)
+		elif self.explore_method=='boltzmann':
+			temperature = self.explore*np.power(self.explore_decay, self.episode)
+			action_probs = scipy.special.softmax(x_critic / temperature)
+			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)
+		else:
+			action = torch.argmax(x_critic)
+		return action
+
+	def move(self, game):
+		game_state = get_state(self.player, self.representation, game=game, return_type='one-hot',
+			dim=self.n_inputs, n_actions=self.n_actions)
+		# add the game state to the network's state input
+		self.state_input.set(game_state)
+		# use reward from the previous turn for online learning
+		self.reward_input.set(self.player, game)
+		# turn learning on/off, depending on the situation
+		self.learning_input.set(self.player, game)
+		# simulate the network with these inputs and collect the action outputs
+		action = self.simulate_action()
+		# translate action into environment-appropriate signal
+		self.state = action / (self.n_actions-1)
+		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
+		# save the chosen action for online learning in the next turn
+		self.action_input.set(action_idx)
+		return give, keep
+
+	def learn(self, game):
+		# Learning rules are applied online based on per-turn rewards, so most update happens in the move() step
+		# However, we must run one final turn of simulation to permit learning on the last turn.
+		# Learner and fixed agents will not make any additional moves that are added to the game history,
+		# but the moves recorded on the last turn will be given an opportunity of affect weight update through PES
+		give, keep = self.move(game)
+		# save weights for the next game
+		self.d_critic = self.network.d_critic
 
 
 

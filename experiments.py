@@ -104,22 +104,20 @@ def test_adaptivity(learner_type, n_learners=100, n_train=1000, n_test=100, seed
 
 	if learner_type=="tabular-q-learning":
 		learners = [TabularQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="tabular-actor-critic":
+		learners = [TabularActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="tabular-model-based":
+		learners = [TabularModelBased('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="deep-q-learning":
 		learners = [DeepQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="deep-actor-critic":
 		learners = [DeepActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="instance-based":
 		learners = [InstanceBased('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="nengo-q-learning":
+		learners = [NengoQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="nengo-actor-critic":
 		learners = [NengoActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
-
-	'''test turn-to-turn adaptivity, investor'''
-	fixed_agents = [adaptive('trustee', 'turn_based')]
-	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "adapt")
-
-	'''test turn-to-turn adaptivity, trustee'''
-	fixed_agents = [adaptive('investor', 'turn_based')]
-	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "adapt")
 
 	'''test cooperation, investor'''
 	fixed_agents = [adaptive('trustee', 'cooperate')]
@@ -145,10 +143,10 @@ def test_adaptivity(learner_type, n_learners=100, n_train=1000, n_test=100, seed
 	fixed_agents = [adaptive('investor', 'gift')]
 	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "gift")
 
-	'''test attrition, investor'''
-	fixed_agents = [adaptive('trustee', 'attrition')]
-	train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "attrition")
+	# '''test attrition, investor'''
+	# fixed_agents = [adaptive('trustee', 'attrition')]
+	# train_and_test(learners, fixed_agents, 'investor', n_train, n_test, "attrition")
 
-	'''test attrition, trustee'''
-	fixed_agents = [adaptive('investor', 'attrition')]
-	train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "attrition")
+	# '''test attrition, trustee'''
+	# fixed_agents = [adaptive('investor', 'attrition')]
+	# train_and_test(fixed_agents, learners, 'trustee', n_train, n_test, "attrition")

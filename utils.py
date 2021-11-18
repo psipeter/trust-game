@@ -184,3 +184,79 @@ def process_data(raw, agents):
 	metrics_score = ('agent', 'player', 'mean', 'std', 'skew', 'kurtosis', 'adapt')
 
 	return data_metrics_gen, data_metrics_score
+
+
+def get_n_inputs(representation, player, n_actions, turns=5, coins=10, match=3, extra_turn=0):
+	turns += extra_turn
+	if representation=='turn':return turns
+	if representation=='turn-coin':
+		if player=='investor': return turns
+		elif player=='trustee': return turns * (coins * match + 1)
+	if representation=='turn-gen-opponent': return turns * (n_actions+1)
+	if representation=='turn-gen-both': return turns * (n_actions+1)**2
+
+def get_state(player, representation, game, return_type, n_actions=0, dim=0):
+	index = 0
+	t = len(game.investor_give) if player=='investor' else len(game.trustee_give)
+	if representation == 'turn':
+		index = t
+	if representation == "turn-coin":
+		if player=='investor': index = t
+		elif player=='trustee': index = t * (game.coins*game.match+1) + game.investor_give[-1]*game.match
+	if representation == "turn-gen-opponent":
+		index = (n_actions+1) * t
+		if player == 'investor':
+			if t==0: opponent_gen = 0
+			elif np.isnan(game.trustee_gen[-1]): opponent_gen = -1
+			else: opponent_gen = game.trustee_gen[-1]
+		elif player == 'trustee':
+			opponent_gen = game.investor_gen[-1]
+		gen_bins = np.linspace(0, 1, n_actions)
+		for i in range(len(gen_bins)-1):
+			if gen_bins[i] < opponent_gen <= gen_bins[i+1]:
+				index += i
+		if opponent_gen == -1:
+			index += n_actions
+	if representation == "turn-gen-both":
+		index = (n_actions+1)**2 * t
+		if player == 'investor':
+			if t==0: my_gen = 0
+			else: my_gen = game.investor_gen[-1]
+			if t==0: opponent_gen = 0
+			elif np.isnan(game.trustee_gen[-1]): opponent_gen = -1
+			else: opponent_gen = game.trustee_gen[-1]
+		elif player == 'trustee':
+			opponent_gen = game.investor_gen[-1]
+			if t==0: my_gen = 0
+			elif np.isnan(game.trustee_gen[-1]): my_gen = -1
+			else: my_gen = game.trustee_gen[-1]
+		gen_bins = np.linspace(0, 1, n_actions)
+		for i in range(len(gen_bins)-1):
+			if gen_bins[i] < my_gen <= gen_bins[i+1]:
+				index += n_actions * i
+			if gen_bins[i] < opponent_gen <= gen_bins[i+1]:
+				index += i
+		if my_gen == -1:
+			index += (n_actions+1)**2
+		if opponent_gen == -1:
+			index += n_actions+1
+	if return_type=='index':
+		return index
+	if return_type=='one-hot':
+		vector = np.zeros((dim))
+		vector[index] = 1
+		return vector
+	if return_type=='tensor':
+		vector = np.zeros((dim))
+		vector[index] = 1
+		return torch.FloatTensor(vector)
+
+def action_to_coins(player, state, n_actions, game):
+	available = game.coins if player=='investor' else game.investor_give[-1]*game.match  # coins available
+	precise_give = state * available
+	possible_actions = np.linspace(0, available, n_actions).astype(int)
+	action_idx = (np.abs(possible_actions - precise_give)).argmin()
+	action = possible_actions[action_idx]
+	give = action
+	keep = available - action
+	return give, keep, action_idx

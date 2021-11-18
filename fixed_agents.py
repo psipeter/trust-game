@@ -1,5 +1,6 @@
 import numpy as np
 import random
+from utils import *
 
 class t4t():
 	def __init__(self, player, O=1, X=0.5, F=1.0, P=1.0, C=0.2, ID="t4t"):
@@ -65,9 +66,10 @@ class t4tv(t4t):
 
 
 class adaptive():
-	def __init__(self, player, ID, thr_trustee=0.5, thr_investor=1.0):
+	def __init__(self, player, ID, n_actions=11, thr_trustee=0.5, thr_investor=1.0):
 		self.player = player
 		self.ID = ID
+		self.n_actions = n_actions
 		self.state = 0
 		self.thr_trustee = thr_trustee
 		self.thr_investor = thr_investor
@@ -77,63 +79,39 @@ class adaptive():
 
 	def move(self, game):
 		self.update_state(game)
-		coins = game.coins if self.player=='investor' else game.investor_give[-1]*game.match  # coins available on this turn
-		action = coins * self.state
-		give = int(np.clip(action, 0, coins))
-		keep = int(coins - give)
+		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
 		return give, keep
 
 	def update_state(self, game):
+		t = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
+		# optimal learned policy against this opponent indicated as [turn1, turn2...], [cooperate, defect, ...]
 		if self.ID == "cooperate":
-			if self.player == 'investor':   #  trustee should learn to cooperate on turn 0-4
-				self.state = 1 if (len(game.investor_gen)==0 or game.trustee_gen[-1]>=self.thr_trustee) else 0.1
-			elif self.player == 'trustee':
-				self.state = 0.5  #  investor should learn to cooperate on turn 0-4
+			if self.player == 'investor':  # [c,c,c,c,d]
+				self.state = 1
+				if np.any(np.array(game.trustee_gen)<self.thr_trustee): self.state = 0.1
+			elif self.player == 'trustee': # [c,c,c,c,c]
+				self.state = 0.5
 		if self.ID == "attrition":
-			if self.player == 'investor':
-				self.state = 0.9  # trustee should learn to be greedy on turn 0-4
-			elif self.player == 'trustee':
-				self.state = 0  # trustee should learn to be greedy on turn 0-4
-		if self.ID == "turn_based":
-			if self.player == 'investor':
-				if len(game.investor_gen)==0: self.state = 1
-				if len(game.investor_gen)==1: self.state = 1  # trustee should learn to be greedy turn 0
-				if len(game.investor_gen)==2 and game.trustee_gen[-1]<self.thr_trustee: self.state = 0.1  # trustee should learn to be generous turn 1
-				if len(game.investor_gen)==3 and game.trustee_gen[-1]<self.thr_trustee: self.state = 0.1  # trustee should learn to be generous turn 2
-				if len(game.investor_gen)==4: self.state = 1  # trustee should learn to be greedy turn 3 and 4
-			elif self.player == 'trustee':
-				if len(game.investor_gen)==1: self.state = 0  # investor should learn to be greedy turn 0
-				if len(game.investor_gen)==2: self.state = 0.5  # investor should learn to be generous turn 1
-				if len(game.investor_gen)==3: self.state = 0.5  # investor should learn to be generous turn 2
-				if len(game.investor_gen)==4: self.state = 0  # investor should learn to be greedy turn 3
-				if len(game.investor_gen)==5: self.state = 0  # investor should learn be greedy turn 4
+			if self.player == 'investor':  # [d,d,d,d,d]
+				self.state = 1  
+			elif self.player == 'trustee':  # [d,d,d,d,d]
+				self.state = 0
 		if self.ID == "defect":
-			if self.player == 'investor':
-				if len(game.investor_gen)==0: self.state = 1.0  # agent begins generously
-				if len(game.investor_gen)==1 and game.trustee_gen[-1]<self.thr_trustee: self.state = 0.1  # trustee should learn to be generous turn 0
-				if len(game.investor_gen)==2 and game.trustee_gen[-1]<self.thr_trustee: self.state = 0.1  # trustee should learn to be generous turn 1
-				if len(game.investor_gen)==3: self.state = 1  # trustee should defect turn 2
-				if len(game.investor_gen)==4: self.state = 1  # trustee should remain greedy turn 3 and 4
-			elif self.player == 'trustee':
-				if len(game.investor_gen)==1: self.state = 0.5  # investor should learn to cooperate turn 0
-				if len(game.investor_gen)==2: self.state = 0.5  # investor should learn to cooperate turn 1
-				if len(game.investor_gen)==3: self.state = 0.5  # investor should learn to cooperate turn 2
-				if len(game.investor_gen)==4: self.state = 0  # investor should learn to defect turn 3
-				if len(game.investor_gen)==5: self.state = 0  # investor should learn to remain greedy turn 4
+			if self.player == 'investor':  # [c,d,d,d,d]
+				if t==0: self.state = 1
+				if t==1 and game.trustee_gen[-1]<self.thr_trustee: self.state = 0.1
+			elif self.player == 'trustee':  # [c,d,d,d,d]
+				if t==0: self.state = 0.5
+				if t>0: self.state = 0
 		if self.ID == "gift":
-			if self.player == 'investor':
-				if len(game.investor_gen)==0: self.state = 0.5  # agent begins with a small investment
-				if len(game.investor_gen)==1 and game.trustee_gen[-1]>=self.thr_trustee: self.state += 0.25  # trustee should learn to offer gift turn 0
-				if len(game.investor_gen)==2 and game.trustee_gen[-1]>=self.thr_trustee: self.state += 0.25  # trustee should learn to offer gift turn 1
-				if len(game.investor_gen)==3: pass  # trustee should defect turn 2
-				if len(game.investor_gen)==4: pass  # trustee should remain greedy turn 3 and 4
-			elif self.player == 'trustee':
-				if len(game.investor_gen)==1: self.state = 0  # investor should learn to offer nothing turn 0
-				if len(game.investor_gen)==2 and game.investor_gen[-1]>=self.thr_trustee: self.state += 0.45  # investor should learn to offer gift turn 1
-				if len(game.investor_gen)==3 and game.investor_gen[-1]>=self.thr_trustee: self.state += 0.55  # investor should learn to offer gift turn 2
-				if len(game.investor_gen)==4: pass  # investor should learn to cooperate turn 3
-				if len(game.investor_gen)==5: pass  # investor should learn to cooperate turn 4
-
+			if self.player == 'investor':  # [d,c,d,d,d]
+				if t==0: self.state = 1
+				if t==1: self.state = 0.1
+				if t==2 and game.trustee_gen[-1]>=self.thr_investor: self.state = 0.5
+			elif self.player == 'trustee':  # [d,c,d,d,d]
+				if t==0: self.state = 0
+				if t==1 and game.investor_gen[-1]>=self.thr_investor: self.state = 0.5
+				if t>1: self.state = 0
 
 	def learn(self, game):
 		pass
