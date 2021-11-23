@@ -33,14 +33,13 @@ from experiments import *
 
 
 
-# test_adaptivity(learner_type="tabular-q-learning", n_learners=1, n_train=2000, n_test=10, seed=0)
-test_adaptivity(learner_type="tabular-actor-critic", n_learners=1, n_train=2000, n_test=10, seed=0)
-# test_adaptivity(learner_type="tabular-model-based", n_learners=1, n_train=500, n_test=10, seed=0)
+# test_adaptivity(learner_type="tabular-q-learning", n_learners=1, n_train=3000, n_test=10, seed=0)
+# test_adaptivity(learner_type="tabular-actor-critic", n_learners=3, n_train=2000, n_test=10, seed=0)
 
-# test_adaptivity(learner_type="deep-q-learning", n_learners=10, n_train=1000, n_test=10, seed=0)
-# test_adaptivity(learner_type="deep-actor-critic", n_learners=3, n_train=1000, n_test=10, seed=0)
+# test_adaptivity(learner_type="deep-q-learning", n_learners=1, n_train=3000, n_test=10, seed=0)
+# test_adaptivity(learner_type="deep-actor-critic", n_learners=3, n_train=1500, n_test=10, seed=0)
 
-# test_adaptivity(learner_type="instance-based", n_learners=10, n_train=1000, n_test=10, seed=0)
+# test_adaptivity(learner_type="instance-based", n_learners=3, n_train=4000, n_test=10, seed=0)
 
-# test_adaptivity(learner_type="nengo-q-learning", n_learners=1, n_train=500, n_test=10, seed=0)
-# test_adaptivity(learner_type="nengo-actor-critic", n_learners=1, n_train=500, n_test=10, seed=0)
+test_adaptivity(learner_type="nengo-q-learning", n_learners=3, n_train=3000, n_test=10, seed=0)
+# test_adaptivity(learner_type="nengo-actor-critic", n_learners=3, n_train=3000, n_test=10, seed=0)

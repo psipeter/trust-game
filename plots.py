@@ -70,22 +70,18 @@ def plot_policy(data, learner_plays, name):
 	n_nans = np.count_nonzero(np.isnan(generosities))  # count "nan" generosities (which indicate a skipped turn) in the data
 	generosities = generosities[~np.isnan(generosities)]  # remove these entries from the data
 	data = data_test.query('player==@learner_plays').dropna()
-	# if np.std(data_test.query('player==@learner_plays')['generosity'].to_numpy())>1e-5:
 	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))
-	sns.kdeplot(data=data, x='turn', y='generosity',
-		bw_method=0.1, levels=5, thresh=0.1, fill=True, ax=ax)
-	ax.set(xlim=((-0.5, 4.5)), xticks=((0,1,2,3,4)), ylim=((-0.1, 1.1)), yticks=((0, 1)), title=f'skips: {n_nans}/{n_total}')
+	if np.std(data_test.query('player==@learner_plays')['generosity'].to_numpy())>1e-5:
+		sns.kdeplot(data=data, x='turn', y='generosity',
+			bw_method=0.1, levels=5, thresh=0.1, fill=True, ax=ax)
+		ax.set(xlim=((-0.5, 4.5)), xticks=((0,1,2,3,4)), ylim=((-0.1, 1.1)), yticks=((0, 1)), title=f'skips: {n_nans}/{n_total}')
+	else:
+		bins = np.arange(0, 1.1, 0.1)
+		sns.histplot(data=data_test.query('player==@learner_plays'), x='generosity', bins=bins, stat='probability', ax=ax)
+		ax.set(xticks=((0, 1)), xlim=((0, 1)), ylim=((0, 1)), yticks=((0, 1)))
 	plt.tight_layout()
 	sns.despine(top=True, right=True)
 	fig.savefig(f'plots/{name}_{learner_plays}_policy.pdf')
-	# else:
-	# 	bins = np.arange(0, 1.1, 0.1)
-	# 	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))
-	# 	sns.histplot(data=data_test.query('player==@learner_plays'), x='generosity', bins=bins, stat='probability', ax=ax)
-	# 	ax.set(xticks=((0, 1)), xlim=((0, 1)), ylim=((0, 1)), yticks=((0, 1)))
-	# 	plt.tight_layout()
-	# 	sns.despine(top=True, right=True)
-	# 	fig.savefig(f'plots/{name}_{learner_plays}_policy.pdf')
 
 	# try:
 	# 	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((2, 2)))

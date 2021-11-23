@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import pandas as pd
+import torch
 from scipy.stats import entropy, skew, kurtosis, normaltest
 
 class Game():
