@@ -8,7 +8,7 @@ from utils import *
 
 class TabularQLearning():
 
-	def __init__(self, player, seed=0, n_actions=11, ID="tabular-q-learning", representation='turn-gen-opponent',
+	def __init__(self, player, seed=0, n_actions=11, ID="tabular-q-learning", representation='turn-coin',
 			explore_method='boltzmann', explore=100, explore_decay=0.998,
 			learning_method='TD0', learning_rate=1e0, gamma=0.99, lambd=0.8):
 		self.player = player
@@ -701,17 +701,11 @@ class NengoQLearning():
 	class LearningInput():
 		def __init__(self):
 			self.learning = 0
-		def set(self, player, game):
-			current_turn = len(game.investor_give) if player=='investor' else len(game.trustee_give)
-			self.learning = 1  # on by default
-			if not game.train: self.learning = 0  # testing
-			if current_turn==0: self.learning = 2  # first turn
-			if current_turn>=5: self.learning = 3  # last turn
+		def set(self, train):
+			self.learning = 1 if train else 0
 		def get(self):
 			return self.learning
 
-
-	# implement a one-timestep delay
 	class Delay(nengo.synapses.Synapse):
 		def __init__(self, size_in=1):
 			super().__init__(default_size_in=size_in, default_size_out=size_in)
@@ -725,8 +719,44 @@ class NengoQLearning():
 				return result
 			return step_delay
 
+	# Terry's code for LMUs
+	class LMU(nengo.Process):
+		def __init__(self, theta, q, size_in=1):
+			self.q = q              # number of internal state dimensions per input
+			self.theta = theta      # size of time window (in seconds)
+			self.size_in = size_in  # number of inputs
+			# Do Aaron's math to generate the matrices
+			#  https://github.com/arvoelke/nengolib/blob/master/nengolib/synapses/analog.py#L536
+			Q = np.arange(q, dtype=np.float64)
+			R = (2*Q + 1)[:, None] / theta
+			j, i = np.meshgrid(Q, Q)
+			self.A = np.where(i < j, -1, (-1.)**(i-j+1)) * R
+			self.B = (-1.)**Q[:, None] * R
+			super().__init__(default_size_in=size_in, default_size_out=q*size_in)
+
+		def make_step(self, shape_in, shape_out, dt, rng, state=None):
+			state = np.zeros((self.q, self.size_in))
+			# Handle the fact that we're discretizing the time step
+			#  https://en.wikipedia.org/wiki/Discretization#Discretization_of_linear_state_space_models
+			Ad = scipy.linalg.expm(self.A*dt)
+			Bd = np.dot(np.dot(np.linalg.inv(self.A), (Ad-np.eye(self.q))), self.B)
+			# this code will be called every timestep
+			def step_legendre(t, x, state=state):
+				state[:] = np.dot(Ad, state) + np.dot(Bd, x[None, :])
+				return state.T.flatten()
+			return step_legendre
+
+		def get_weights_for_delays(self, r):
+			# compute the weights needed to extract the value at time r
+			# from the network (r=0 is right now, r=1 is theta seconds ago)
+			r = np.asarray(r)
+			m = np.asarray([scipy.special.legendre(i)(2*r - 1) for i in range(self.q)])
+			return m.reshape(self.q, -1).T
+
+
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-gen-opponent',
-			encoder_method='one-hot', learning_rate=1e-4, n_neurons=200, dt=1e-3, tau=None, turn_time=1e-3,
+			encoder_method='one-hot', learning_rate=3e-5, n_neurons=100, dt=1e-3,
+			turn_time=1e-2, q=100,
 			explore_method='boltzmann', explore=100, explore_decay=0.998, gamma=0.99):
 		self.player = player
 		self.ID = ID
@@ -739,9 +769,8 @@ class NengoQLearning():
 		self.dt = dt
 		self.encoder_method = encoder_method
 		self.learning_rate = learning_rate
-		self.gamma = gamma  # discount
-		self.tau = tau  # synaptic time constant
-		self.delay = self.Delay(size_in=n_neurons)
+		self.gamma = gamma
+		self.q = q  # order of LMU
 		self.turn_time = turn_time
 		self.explore_method = explore_method
 		self.explore = explore
@@ -789,11 +818,12 @@ class NengoQLearning():
 		with network:
 
 			class CriticNode(nengo.Node):
-				def __init__(self, n_neurons, n_actions, d=None, learning_rate=0, gamma=0.99):
+				def __init__(self, n_neurons, n_actions, turn_time, d, learning_rate, gamma):
 					self.n_neurons = n_neurons
 					self.n_actions = n_actions
 					self.size_in = 2*n_neurons + 3
 					self.size_out = n_actions
+					self.turn_time = turn_time
 					self.d = d
 					self.learning_rate = learning_rate
 					self.gamma = gamma
@@ -806,14 +836,14 @@ class NengoQLearning():
 					learning = x[-1]  # gating signal for updating decoders
 					value = np.dot(activity, self.d)  # current state of the critic
 					past_value = np.dot(past_activity, self.d)  # previous state of the critic
-					# calculate error signal for PES, gated by learning signal
-					if learning==0: error = 0 # no learning during testing
-					# elif learning==1: error = past_reward + self.gamma*value[past_action] - past_value[past_action]  # TODO: SARSA
-					elif learning==1: error = past_reward + self.gamma*np.max(value) - past_value[past_action]  # normal RL update
-					elif learning==2: error = 0  # no learning during first turn (no reward signal)
-					elif learning==3: error = past_reward - past_value[past_action] # the target value in the 6th turn is simply the reward
-					# update based on delayed activities and the associated value error
-					delta = (self.learning_rate / self.n_neurons) * past_activity * error
+					# print(t, activity[:5], past_activity[:5])
+					if 0<t<=self.turn_time:
+						error = 0
+					elif self.turn_time<t<=5*self.turn_time:
+						error = learning * (past_reward + self.gamma*np.max(value) - past_value[past_action]) # TD0 update
+					elif 5*self.turn_time<t:
+						error = learning * (past_reward - past_value[past_action]) # TD0 update on last turn
+					delta = (self.learning_rate / self.n_neurons) * past_activity * error  # PES update
 					self.d[:,past_action] += delta
 					return value  # return the current state of the critic (Q-value)
 
@@ -822,17 +852,24 @@ class NengoQLearning():
 			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=1)
 			learning_input = nengo.Node(lambda t, x: self.learning_input.get(), size_in=2, size_out=1)
 
-			state = nengo.Ensemble(self.n_neurons, self.n_inputs, intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
-			critic = CriticNode(self.n_neurons, self.n_actions, d=self.d_critic, learning_rate=self.learning_rate, gamma=self.gamma)
+			state = nengo.Ensemble(self.n_neurons, self.n_inputs,
+				intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
+			lmu = self.LMU(theta=self.turn_time, q=self.q, size_in=self.n_neurons)
+			state_delayed = nengo.Node(lmu)
+			critic = CriticNode(self.n_neurons, self.n_actions,
+				turn_time=self.turn_time, d=self.d_critic, learning_rate=self.learning_rate, gamma=self.gamma)
+
+			# compute decoders from LMU to decode the activity of the state population turn_time seconds ago
+			d_lmu_delay = np.kron(np.eye(self.n_neurons), lmu.get_weights_for_delays(r=1)) # r=1 corresponds to delay=theta
 
 			nengo.Connection(state_input, state, synapse=None)
 			nengo.Connection(state.neurons, critic[:self.n_neurons], synapse=None)
-			nengo.Connection(state.neurons, critic[self.n_neurons: 2*self.n_neurons], synapse=self.delay)
+			nengo.Connection(state.neurons, state_delayed, synapse=None)
+			nengo.Connection(state_delayed, critic[self.n_neurons: 2*self.n_neurons], transform=d_lmu_delay, synapse=None)
 			nengo.Connection(past_action, critic[-3], synapse=None)
 			nengo.Connection(past_reward, critic[-2], synapse=None)
 			nengo.Connection(learning_input, critic[-1], synapse=None)
 
-			network.p_state = nengo.Probe(state.neurons, synapse=None)
 			network.p_critic = nengo.Probe(critic, synapse=None)
 			network.d_critic = critic.d
 
@@ -862,8 +899,8 @@ class NengoQLearning():
 		self.state_input.set(game_state)
 		# use reward from the previous turn for online learning
 		self.reward_input.set(self.player, game)
-		# turn learning on/off, depending on the situation
-		self.learning_input.set(self.player, game)
+		# turn learning off during testing
+		self.learning_input.set(game.train)
 		# simulate the network with these inputs and collect the action outputs
 		action = self.simulate_action()
 		# translate action into environment-appropriate signal
@@ -881,7 +918,6 @@ class NengoQLearning():
 		give, keep = self.move(game)
 		# save weights for the next game
 		self.d_critic = self.network.d_critic
-
 
 
 
@@ -958,7 +994,8 @@ class NengoActorCritic():
 			return step_delay
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-gen-opponent',
-			encoder_method='one-hot', actor_rate=3e-4, critic_rate=3e-4, n_neurons=200, dt=1e-3, tau=None, turn_time=1e-3,
+			encoder_method='one-hot', actor_rate=3e-4, critic_rate=3e-4, n_neurons=200, dt=1e-3, turn_time=1e-3,
+			tau_fast=0.01, tau_slow=0.1,
 			explore_method='boltzmann', explore=100, explore_decay=0.98, gamma=0.99):
 		self.player = player
 		self.ID = ID
@@ -972,8 +1009,9 @@ class NengoActorCritic():
 		self.encoder_method = encoder_method
 		self.actor_rate = actor_rate
 		self.critic_rate = critic_rate
-		self.gamma = gamma  # discount
-		self.tau = tau  # synaptic time constant
+		self.gamma = gamma 
+		self.tau_fast = tau_fast
+		self.tau_slow = tau_slow
 		self.delay = self.Delay(size_in=n_neurons)
 		self.turn_time = turn_time
 		self.explore_method = explore_method
@@ -1112,7 +1150,6 @@ class NengoActorCritic():
 		return action, action_probs
 
 	def move(self, game):
-
 		game_state = get_state(self.player, self.representation, game=game, return_type='one-hot',
 			dim=self.n_inputs, n_actions=self.n_actions)
 		# add the game state to the network's state input

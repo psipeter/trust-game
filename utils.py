@@ -261,3 +261,41 @@ def action_to_coins(player, state, n_actions, game):
 	give = action
 	keep = available - action
 	return give, keep, action_idx
+
+
+# def train_lmu(n_neurons, delay, dim_per_neuron=8, seed=0, t_train=100, freq=1, rms=1):
+# 	# adapted from https://www.nengo.ai/nengo/examples/learning/lmu.html
+
+# 	class IdealDelay(nengo.synapses.Synapse):
+# 		def __init__(self, delay):
+# 			super().__init__()
+# 			self.delay = delay
+# 		def make_state(self, shape_in, shape_out, dt, dtype=None, y0=None):
+# 			return {}
+# 		def make_step(self, shape_in, shape_out, dt, rng, state):
+# 			buffer = deque([0] * int(self.delay / dt))
+# 			def delay_func(t, x):
+# 				buffer.append(x.copy())
+# 				return buffer.popleft()
+# 			return delay_func
+
+# 	order = n_neurons * dim_per_neuron
+# 	Q = np.arange(order, dtype=np.float64)
+# 	R = (2 * Q + 1)[:, None] / (2*delay)
+# 	j, i = np.meshgrid(Q, Q)
+# 	A = np.where(i < j, -1, (-1.0) ** (i - j + 1)) * R
+# 	B = (-1.0) ** Q[:, None] * R
+# 	C = np.ones((1, order))
+# 	D = np.zeros((1,))
+# 	A, B, _, _, _ = nengo.utils.filter_design.cont2discrete((A, B, C, D), dt=dt, method="zoh")
+
+# 	network = nengo.Network(seed=seed)
+# 	with network:
+# 		stim = nengo.Node(output=nengo.processes.WhiteSignal(high=freq, period=t_train, rms=rms, y0=0, seed=seed))
+# 		lmu = nengo.Node(size_in=order)
+# 		output = nengo.None(size_in=n_neurons)
+
+# 		nengo.Connection(stim, lmu, transform=B, synapse=None)
+# 		nengo.Connection(lmu, lmu, transform=A, synapse=0)
+# 		p_stim = nengo.Probe(stim)
+# 		p_ideal = nengo.Probe(stim, synapse=IdealDelay(delay))		
