@@ -753,10 +753,18 @@ class NengoQLearning():
 			m = np.asarray([scipy.special.legendre(i)(2*r - 1) for i in range(self.q)])
 			return m.reshape(self.q, -1).T
 
+	class Delay:
+		def __init__(self, dimensions, timesteps=1):
+			self.history = np.zeros((timesteps+1, dimensions))
+		def step(self, t, x):
+			self.history = np.roll(self.history, -1, axis=0)
+			self.history[-1] = x
+			return self.history[0]
+
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-gen-opponent',
-			encoder_method='one-hot', learning_rate=3e-5, n_neurons=100, dt=1e-3,
-			turn_time=1e-2, q=100,
+			encoder_method='one-hot', learning_rate=1e-6, n_neurons=200, dt=1e-3,
+			turn_time=1e-1, q=100,
 			explore_method='boltzmann', explore=100, explore_decay=0.998, gamma=0.99):
 		self.player = player
 		self.ID = ID
@@ -854,18 +862,21 @@ class NengoQLearning():
 
 			state = nengo.Ensemble(self.n_neurons, self.n_inputs,
 				intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
-			lmu = self.LMU(theta=self.turn_time, q=self.q, size_in=self.n_neurons)
-			state_delayed = nengo.Node(lmu)
+			# lmu = self.LMU(theta=self.turn_time, q=self.q, size_in=self.n_neurons)
+			delay = self.Delay(dimensions=self.n_neurons, timesteps=int(self.turn_time/self.dt))
+			# state_delayed = nengo.Node(lmu)
+			state_delayed = nengo.Node(delay.step, size_in=self.n_neurons, size_out=self.n_neurons)
 			critic = CriticNode(self.n_neurons, self.n_actions,
 				turn_time=self.turn_time, d=self.d_critic, learning_rate=self.learning_rate, gamma=self.gamma)
 
 			# compute decoders from LMU to decode the activity of the state population turn_time seconds ago
-			d_lmu_delay = np.kron(np.eye(self.n_neurons), lmu.get_weights_for_delays(r=1)) # r=1 corresponds to delay=theta
+			# d_lmu_delay = np.kron(np.eye(self.n_neurons), lmu.get_weights_for_delays(r=1)) # r=1 corresponds to delay=theta
 
 			nengo.Connection(state_input, state, synapse=None)
 			nengo.Connection(state.neurons, critic[:self.n_neurons], synapse=None)
 			nengo.Connection(state.neurons, state_delayed, synapse=None)
-			nengo.Connection(state_delayed, critic[self.n_neurons: 2*self.n_neurons], transform=d_lmu_delay, synapse=None)
+			# nengo.Connection(state_delayed, critic[self.n_neurons: 2*self.n_neurons], transform=d_lmu_delay, synapse=None)
+			nengo.Connection(state_delayed, critic[self.n_neurons: 2*self.n_neurons], synapse=None)
 			nengo.Connection(past_action, critic[-3], synapse=None)
 			nengo.Connection(past_reward, critic[-2], synapse=None)
 			nengo.Connection(learning_input, critic[-1], synapse=None)
