@@ -4,12 +4,13 @@ import os
 import torch
 import scipy
 import nengo
+import nengolib
 from utils import *
 
 class TabularQLearning():
 
 	def __init__(self, player, seed=0, n_actions=11, ID="tabular-q-learning", representation='turn-coin',
-			explore_method='boltzmann', explore=100, explore_decay=0.998,
+			explore_method='boltzmann', explore=100, explore_decay=0.92,
 			learning_method='TD0', learning_rate=1e0, gamma=0.99, lambd=0.8):
 		self.player = player
 		self.ID = ID
@@ -444,7 +445,7 @@ class InstanceBased():
 			populate_method='state-similarity', value_method='next-value',
 			thr_activation=0, thr_action=0.8, thr_state=0.8,
 			learning_method='TD0', gamma=0.99,
-			explore_method='boltzmann', explore=100, explore_decay=0.998):
+			explore_method='boltzmann', explore=100, explore_decay=0.93):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -665,7 +666,6 @@ class InstanceBased():
 				self.declarative_memory.append(new_chunk)
 
 
-
 class NengoQLearning():
 
 	class StateInput():
@@ -763,8 +763,8 @@ class NengoQLearning():
 
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-gen-opponent',
-			encoder_method='one-hot', learning_rate=1e-5, n_neurons=200, dt=1e-3,
-			turn_time=1e-2, q=100,
+			encoder_method='one-hot', learning_rate=1e-4, n_neurons=100, dt=1e-3,
+			turn_time=1e-2, q=10,
 			explore_method='boltzmann', explore=100, explore_decay=0.998, gamma=0.99):
 		self.player = player
 		self.ID = ID
@@ -789,19 +789,18 @@ class NengoQLearning():
 		self.learning_input = self.LearningInput()
 		self.encoders, self.intercepts = self.build_encoders()
 		self.d_critic = np.zeros((self.n_neurons, self.n_actions))
+		self.network = self.build_network()
+		self.simulator = nengo.Simulator(self.network, dt=self.dt, seed=self.seed)
 		self.state = None
-		self.network = None
-		self.simulator = None
 		self.episode = 0
 
 	def reinitialize(self, player):
 		self.__init__(player)
 
 	def new_game(self):
-		self.network = self.build_network()
-		self.simulator = nengo.Simulator(self.network, dt=self.dt, progress_bar=False)
 		self.reward_input.clear()
 		self.action_input.clear()
+		self.simulator.reset(self.seed)
 		self.episode += 1
 
 	def build_encoders(self):
@@ -844,7 +843,7 @@ class NengoQLearning():
 					learning = x[-1]  # gating signal for updating decoders
 					value = np.dot(activity, self.d)  # current state of the critic
 					past_value = np.dot(past_activity, self.d)  # previous state of the critic
-					# print(t, activity[:5], past_activity[:5])
+					# print(t, activity[:5], past_activity[:5], past_reward, past_action, learning)
 					if 0<t<=self.turn_time:
 						error = 0
 					elif self.turn_time<t<=5*self.turn_time:
@@ -860,27 +859,40 @@ class NengoQLearning():
 			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=1)
 			learning_input = nengo.Node(lambda t, x: self.learning_input.get(), size_in=2, size_out=1)
 
-			state = nengo.Ensemble(self.n_neurons, self.n_inputs,
+			state = nengo.Ensemble(self.n_neurons, self.n_inputs, seed=self.seed,
 				intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
-			lmu = self.LMU(theta=self.turn_time, q=self.q, size_in=self.n_neurons)
-			# delay = self.Delay(dimensions=self.n_neurons, timesteps=int(self.turn_time/self.dt))
-			state_delayed = nengo.Node(lmu)
-			# state_delayed = nengo.Node(delay.step, size_in=self.n_neurons, size_out=self.n_neurons)
+			state_delayed = nengo.Ensemble(self.n_neurons, self.n_inputs, seed=self.seed,
+				intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
+			# delay = self.Delay(dimensions=self.n_inputs, timesteps=int(self.turn_time/self.dt))
+			# delay = self.LMU(theta=self.turn_time, q=self.q, size_in=self.n_inputs)
+			# memory = nengo.Node(delay)
+			# memory = nengo.Node(delay.step, size_in=self.n_inputs, size_out=self.n_inputs)
+			memory = []
+			for dim in range(self.n_inputs):
+				memory.append(nengolib.networks.RollingWindow(
+					theta=self.turn_time, n_neurons=100, neuron_type=nengo.LIFRate(), legendre=True, dimensions=self.q, process=None))
 			critic = CriticNode(self.n_neurons, self.n_actions,
 				turn_time=self.turn_time, d=self.d_critic, learning_rate=self.learning_rate, gamma=self.gamma)
 
 			# compute decoders from LMU to decode the activity of the state population turn_time seconds ago
-			d_lmu_delay = np.kron(np.eye(self.n_neurons), lmu.get_weights_for_delays(r=1)) # r=1 corresponds to delay=theta
+			# d_delay = np.kron(np.eye(self.n_inputs), delay.get_weights_for_delays(r=1)) # r=1 corresponds to delay=theta
+			# nengo.Connection(memory, state_delayed, transform=d_delay, synapse=None)
 
 			nengo.Connection(state_input, state, synapse=None)
+			# nengo.Connection(state_input, memory, synapse=None)
+			for dim in range(self.n_inputs):
+				nengo.Connection(state_input[dim], memory[dim].input, synapse=None)
+				nengo.Connection(memory[dim].output, state_delayed[dim], synapse=None)
+			# nengo.Connection(memory, state_delayed, synapse=None)
+
 			nengo.Connection(state.neurons, critic[:self.n_neurons], synapse=None)
-			nengo.Connection(state.neurons, state_delayed, synapse=None)
-			nengo.Connection(state_delayed, critic[self.n_neurons: 2*self.n_neurons], transform=d_lmu_delay, synapse=None)
-			# nengo.Connection(state_delayed, critic[self.n_neurons: 2*self.n_neurons], synapse=None)
+			nengo.Connection(state_delayed.neurons, critic[self.n_neurons: 2*self.n_neurons], synapse=None)
 			nengo.Connection(past_action, critic[-3], synapse=None)
 			nengo.Connection(past_reward, critic[-2], synapse=None)
 			nengo.Connection(learning_input, critic[-1], synapse=None)
 
+			network.p_input = nengo.Probe(state_input, synapse=None)
+			network.p_state = nengo.Probe(state, synapse=None)
 			network.p_critic = nengo.Probe(critic, synapse=None)
 			network.d_critic = critic.d
 
@@ -928,7 +940,214 @@ class NengoQLearning():
 		# but the moves recorded on the last turn will be given an opportunity of affect weight update through PES
 		give, keep = self.move(game)
 		# save weights for the next game
-		self.d_critic = self.network.d_critic
+		# self.d_critic = self.network.d_critic
+
+
+# class NengoQLearning():
+
+# 	class StateInput():
+# 		def __init__(self, n_inputs):
+# 			self.state = np.zeros((n_inputs))
+# 		def set(self, state):
+# 			self.state = state
+# 		def get(self):
+# 			return self.state
+
+# 	class PastRewardInput():
+# 		def __init__(self):
+# 			self.history = []
+# 		def set(self, player, game):
+# 			rewards = game.investor_reward if player=='investor' else game.trustee_reward
+# 			reward = rewards[-1] if len(rewards)>0 else 0
+# 			self.history.append(reward)
+# 		def clear(self):
+# 			self.history.clear()
+# 		def get(self):
+# 			return self.history[-1] if len(self.history)>0 else 0
+
+# 	class PastActionInput():
+# 		def __init__(self):
+# 			self.history = []
+# 		def set(self, action):
+# 			self.history.append(action)
+# 		def clear(self):
+# 			self.history.clear()
+# 		def get(self):
+# 			return self.history[-1] if len(self.history)>0 else 0
+
+# 	class LearningInput():
+# 		def __init__(self):
+# 			self.learning = 0
+# 		def set(self, train):
+# 			self.learning = 1 if train else 0
+# 		def get(self):
+# 			return self.learning
+
+# 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-gen-opponent',
+# 			encoder_method='one-hot', learning_rate=1e-4, n_neurons=100, dt=1e-3, turn_time=1e-2, q=10,
+# 			explore_method='boltzmann', explore=100, explore_decay=0.93, gamma=0.99):
+# 		self.player = player
+# 		self.ID = ID
+# 		self.seed = seed
+# 		self.rng = np.random.RandomState(seed=seed)
+# 		self.representation = representation
+# 		self.n_inputs = get_n_inputs(representation, player, n_actions, extra_turn=1)
+# 		self.n_actions = n_actions
+# 		self.n_neurons = n_neurons
+# 		self.dt = dt
+# 		self.encoder_method = encoder_method
+# 		self.learning_rate = learning_rate
+# 		self.gamma = gamma
+# 		self.q = q  # order of LMU
+# 		self.turn_time = turn_time
+# 		self.explore_method = explore_method
+# 		self.explore = explore
+# 		self.explore_decay = explore_decay
+# 		self.state_input = self.StateInput(self.n_inputs)
+# 		self.reward_input = self.PastRewardInput()
+# 		self.action_input = self.PastActionInput()
+# 		self.learning_input = self.LearningInput()
+# 		self.encoders, self.intercepts = self.build_encoders()
+# 		self.d_critic = np.zeros((self.n_neurons, self.n_actions))
+# 		self.state = None
+# 		self.network = None
+# 		self.simulator = None
+# 		self.episode = 0
+
+# 	def reinitialize(self, player):
+# 		self.__init__(player)
+
+# 	def new_game(self):
+# 		self.network = self.build_network()
+# 		self.simulator = nengo.Simulator(self.network, dt=self.dt, progress_bar=False)
+# 		self.reward_input.clear()
+# 		self.action_input.clear()
+# 		self.episode += 1
+
+# 	def build_encoders(self):
+# 		if self.encoder_method=='uniform':
+# 			intercepts = nengo.Default
+# 			encoders = nengo.Default
+# 		elif self.encoder_method=='one-hot':
+# 			intercepts = nengo.dists.Uniform(0.1, 1)
+# 			encs = []
+# 			for dim in range(self.n_inputs):
+# 				enc = np.zeros((self.n_inputs))
+# 				enc[dim] = 1
+# 				encs.append(enc)
+# 			encoders = []
+# 			for i in range(self.n_neurons):
+# 				encoders.append(encs[i%len(encs)])
+# 			# encoders = nengo.dists.Choice(encs)
+# 		return encoders, intercepts
+
+# 	def build_network(self):
+# 		network = nengo.Network(seed=self.seed)
+# 		with network:
+
+# 			class CriticNode(nengo.Node):
+# 				def __init__(self, n_neurons, n_actions, turn_time, d, learning_rate, gamma):
+# 					self.n_neurons = n_neurons
+# 					self.n_actions = n_actions
+# 					self.size_in = 2*n_neurons + 3
+# 					self.size_out = n_actions
+# 					self.turn_time = turn_time
+# 					self.d = d
+# 					self.learning_rate = learning_rate
+# 					self.gamma = gamma
+# 					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+# 				def step(self, t, x):
+# 					activity = x[:self.n_neurons]  # current synaptic activities from "state" population
+# 					past_activity = x[self.n_neurons: 2*self.n_neurons]  # delayed synaptic activities from "state" population
+# 					past_action = int(x[-3])  # action chosen on the previous turn
+# 					past_reward = x[-2]  # reward associated with past activities
+# 					learning = x[-1]  # gating signal for updating decoders
+# 					value = np.dot(activity, self.d)  # current state of the critic
+# 					past_value = np.dot(past_activity, self.d)  # previous state of the critic
+# 					# print(t, activity[:20], past_activity[:20])
+# 					if 0<t<=self.turn_time:
+# 						error = 0
+# 					elif self.turn_time<t<=5*self.turn_time:
+# 						error = learning * (past_reward + self.gamma*np.max(value) - past_value[past_action]) # TD0 update
+# 					elif 5*self.turn_time<t:
+# 						error = learning * (past_reward - past_value[past_action]) # TD0 update on last turn
+# 					delta = (self.learning_rate / self.n_neurons) * past_activity * error  # PES update
+# 					self.d[:,past_action] += delta
+# 					return value  # return the current state of the critic (Q-value)
+
+# 			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=self.n_inputs)
+# 			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=1)
+# 			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=1)
+# 			learning_input = nengo.Node(lambda t, x: self.learning_input.get(), size_in=2, size_out=1)
+
+# 			state = nengo.Ensemble(self.n_neurons, self.n_inputs,
+# 				intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
+# 			critic = CriticNode(self.n_neurons, self.n_actions,
+# 				turn_time=self.turn_time, d=self.d_critic, learning_rate=self.learning_rate, gamma=self.gamma)
+# 			# one LMU per neuron in state
+# 			state_delayed = []
+# 			for n in range(self.n_neurons):
+# 				state_delayed.append(
+# 					nengolib.networks.RollingWindow(
+# 						theta=self.turn_time, n_neurons=100, neuron_type=nengo.LIFRate(), legendre=True,
+# 						process=nengo.processes.WhiteSignal(period=1, high=100, rms=600, y0=0, seed=self.seed+n)))
+# 				nengo.Connection(state.neurons[n], state_delayed[n].input, synapse=None)
+# 				nengo.Connection(state_delayed[n].output, critic[self.n_neurons+n: self.n_neurons+n+1], synapse=None)
+
+# 			nengo.Connection(state_input, state, synapse=None)
+# 			nengo.Connection(state.neurons, critic[:self.n_neurons], synapse=None)
+# 			nengo.Connection(past_action, critic[-3], synapse=None)
+# 			nengo.Connection(past_reward, critic[-2], synapse=None)
+# 			nengo.Connection(learning_input, critic[-1], synapse=None)
+
+# 			network.p_critic = nengo.Probe(critic, synapse=None)
+# 			network.d_critic = critic.d
+
+# 		return network
+
+# 	def simulate_action(self):
+# 		self.simulator.run(self.turn_time)
+# 		x_critic = self.simulator.data[self.network.p_critic][-1]
+# 		if self.explore_method=='epsilon':
+# 			epsilon = self.explore*np.power(self.explore_decay, self.episode)
+# 			if self.rng.uniform(0, 1) < epsilon:
+# 				action = self.rng.randint(self.n_actions)
+# 			else:
+# 				action = np.argmax(x_critic)
+# 		elif self.explore_method=='boltzmann':
+# 			temperature = self.explore*np.power(self.explore_decay, self.episode)
+# 			action_probs = scipy.special.softmax(x_critic / temperature)
+# 			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)
+# 		else:
+# 			action = torch.argmax(x_critic)
+# 		return action
+
+# 	def move(self, game):
+# 		game_state = get_state(self.player, self.representation, game=game, return_type='one-hot',
+# 			dim=self.n_inputs, n_actions=self.n_actions)
+# 		# add the game state to the network's state input
+# 		self.state_input.set(game_state)
+# 		# use reward from the previous turn for online learning
+# 		self.reward_input.set(self.player, game)
+# 		# turn learning off during testing
+# 		self.learning_input.set(game.train)
+# 		# simulate the network with these inputs and collect the action outputs
+# 		action = self.simulate_action()
+# 		# translate action into environment-appropriate signal
+# 		self.state = action / (self.n_actions-1)
+# 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
+# 		# save the chosen action for online learning in the next turn
+# 		self.action_input.set(action_idx)
+# 		return give, keep
+
+# 	def learn(self, game):
+# 		# Learning rules are applied online based on per-turn rewards, so most update happens in the move() step
+# 		# However, we must run one final turn of simulation to permit learning on the last turn.
+# 		# Learner and fixed agents will not make any additional moves that are added to the game history,
+# 		# but the moves recorded on the last turn will be given an opportunity of affect weight update through PES
+# 		give, keep = self.move(game)
+# 		# save weights for the next game
+# 		self.d_critic = self.network.d_critic
 
 
 
