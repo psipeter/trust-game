@@ -1048,7 +1048,7 @@ class NengoActorCritic():
 			class CriticErrorNode(nengo.Node):
 				def __init__(self, n_neurons, d=None, learning_rate=0, turn_time=1e-3, gamma=0.99):
 					self.n_neurons = n_neurons
-					self.size_in = 2*n_neurons + 1
+					self.size_in = n_neurons + 3
 					self.size_out = 1
 					self.d = d
 					self.learning_rate = learning_rate
@@ -1056,15 +1056,13 @@ class NengoActorCritic():
 					self.turn_time = turn_time
 					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
 				def step(self, t, x):
-					activity = x[:self.n_neurons]
-					past_activity = x[self.n_neurons: 2*self.n_neurons]
-					# print(t, activity[:5], past_activity[:5])
+					past_activity = x[:self.n_neurons]
+					value = x[-3]
+					past_value = x[-2]
 					past_reward = x[-1]
-					value = np.dot(activity, self.d)
-					past_value = np.dot(past_activity, self.d)
 					error = 0
 					if self.turn_time < t <= 5*self.turn_time:
-						error = past_reward + self.gamma*np.max(value) - past_value  # normal RL update
+						error = past_reward + self.gamma*value - past_value  # normal RL update
 					elif 5*self.turn_time < t:
 						error = past_reward - past_value # the target value in the 6th turn is simply the reward
 					# update decoders based on delayed activities and the associated value error
@@ -1103,6 +1101,7 @@ class NengoActorCritic():
 			state_delayed = nengo.Ensemble(self.n_neurons, self.n_inputs, seed=self.seed,
 				intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
 			critic = CriticNode(self.n_neurons, d=self.d_critic)
+			critic_delayed = CriticNode(self.n_neurons, d=self.d_critic)
 			actor = ActorNode(self.n_neurons, self.n_actions, d=self.d_actor)
 			critic_error = CriticErrorNode(self.n_neurons, d=self.d_critic, learning_rate=self.critic_rate, turn_time=self.turn_time, gamma=self.gamma)
 			actor_error = ActorErrorNode(self.n_neurons, self.n_actions, d=self.d_actor, learning_rate=self.actor_rate)
@@ -1116,13 +1115,14 @@ class NengoActorCritic():
 			for s in range(self.n_inputs):
 				nengo.Connection(state_input[s], state_memory[s].input, synapse=None, seed=self.seed)
 				nengo.Connection(state_memory[s].output, state_delayed[s], synapse=None, seed=self.seed)
-			# nengo.Connection(state_input, state_delayed, synapse=self.delay, seed=self.seed)
 
 			nengo.Connection(state.neurons, actor, synapse=None, seed=self.seed)
 			nengo.Connection(state.neurons, critic, synapse=None, seed=self.seed)
+			nengo.Connection(state_delayed.neurons, critic_delayed, synapse=None, seed=self.seed)
 
-			nengo.Connection(state.neurons, critic_error[:self.n_neurons], synapse=None, seed=self.seed)
-			nengo.Connection(state_delayed.neurons, critic_error[self.n_neurons: 2*self.n_neurons], synapse=None, seed=self.seed)
+			nengo.Connection(state_delayed.neurons, critic_error[:self.n_neurons], synapse=None, seed=self.seed)
+			nengo.Connection(critic, critic_error[-3], synapse=None, seed=self.seed)
+			nengo.Connection(critic_delayed, critic_error[-2], synapse=None, seed=self.seed)
 			nengo.Connection(past_reward, critic_error[-1], synapse=None, seed=self.seed)
 
 			nengo.Connection(state_delayed.neurons, actor_error[:self.n_neurons], synapse=None, seed=self.seed)

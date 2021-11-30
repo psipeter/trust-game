@@ -41,5 +41,5 @@ from experiments import *
 
 # test_adaptivity(learner_type="instance-based", n_learners=3, n_train=100, n_test=10, seed=0)
 
-test_adaptivity(learner_type="nengo-q-learning", n_learners=1, n_train=3000, n_test=10, seed=0)
-# test_adaptivity(learner_type="nengo-actor-critic", n_learners=3, n_train=3000, n_test=10, seed=0)
+# test_adaptivity(learner_type="nengo-q-learning", n_learners=1, n_train=100, n_test=10, seed=0)
+test_adaptivity(learner_type="nengo-actor-critic", n_learners=1, n_train=1000, n_test=10, seed=0)
