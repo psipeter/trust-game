@@ -953,7 +953,7 @@ class NengoActorCritic():
 			return step_delay
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-actor-critic", representation='turn-gen-opponent',
-			encoder_method='one-hot', actor_rate=3e-5, critic_rate=3e-5, n_neurons=100, dt=1e-3, turn_time=1e-3, q=10,
+			encoder_method='one-hot', actor_rate=3e-5, critic_rate=3e-5, n_neurons=100, dt=1e-3, turn_time=1e-2, q=6,
 			explore_method='boltzmann', explore=100, explore_decay=0.998, gamma=0.99):
 		self.player = player
 		self.ID = ID
@@ -1106,17 +1106,17 @@ class NengoActorCritic():
 			actor = ActorNode(self.n_neurons, self.n_actions, d=self.d_actor)
 			critic_error = CriticErrorNode(self.n_neurons, d=self.d_critic, learning_rate=self.critic_rate, turn_time=self.turn_time, gamma=self.gamma)
 			actor_error = ActorErrorNode(self.n_neurons, self.n_actions, d=self.d_actor, learning_rate=self.actor_rate)
-			# state_memory = []
-			# for s in range(self.n_inputs):
-			# 	state_memory.append(nengolib.networks.RollingWindow(
-			# 		theta=self.turn_time, n_neurons=self.n_neurons, neuron_type=nengo.LIFRate(),
-			# 		seed=self.seed, legendre=True, dimensions=self.q, process=None))
+			state_memory = []
+			for s in range(self.n_inputs):
+				state_memory.append(nengolib.networks.RollingWindow(
+					theta=self.turn_time, n_neurons=self.n_neurons, neuron_type=nengo.LIFRate(),
+					seed=self.seed, legendre=True, dimensions=self.q, process=None))
 
 			nengo.Connection(state_input, state, synapse=None, seed=self.seed)
-			# for s in range(self.n_inputs):
-			# 	nengo.Connection(state_input[s], state_memory[s].input, synapse=None, seed=self.seed)
-			# 	nengo.Connection(state_memory[s].output, state_delayed[s], synapse=None, seed=self.seed)
-			nengo.Connection(state_input, state_delayed, synapse=self.delay, seed=self.seed)
+			for s in range(self.n_inputs):
+				nengo.Connection(state_input[s], state_memory[s].input, synapse=None, seed=self.seed)
+				nengo.Connection(state_memory[s].output, state_delayed[s], synapse=None, seed=self.seed)
+			# nengo.Connection(state_input, state_delayed, synapse=self.delay, seed=self.seed)
 
 			nengo.Connection(state.neurons, actor, synapse=None, seed=self.seed)
 			nengo.Connection(state.neurons, critic, synapse=None, seed=self.seed)
