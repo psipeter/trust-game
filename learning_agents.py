@@ -1017,41 +1017,37 @@ class NengoActorCritic():
 		return encoders, intercepts
 
 	def build_network(self):
-		network = nengo.Network(seed=self.seed)
+		seed = self.seed
+		n_neurons = self.n_neurons
+		n_actions = self.n_actions
+		n_inputs = self.n_inputs
+		network = nengo.Network(seed=seed)
 		with network:
 
-			class CriticNode(nengo.Node):
-				def __init__(self, n_neurons, d):
+			class PESNode(nengo.Node):
+				def __init__(self, n_neurons, d, learning_rate):
 					self.n_neurons = n_neurons
-					self.size_in = n_neurons
-					self.size_out = 1
+					self.dimensions = d.shape[1]
+					self.size_in = 2*n_neurons + self.dimensions
+					self.size_out = self.dimensions
 					self.d = d
+					self.learning_rate = learning_rate
 					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
 				def step(self, t, x):
 					activity = x[:self.n_neurons]
+					past_activity = x[self.n_neurons: 2*self.n_neurons]
+					error = x[2*self.n_neurons:]
+					if self.learning_rate > 0:
+						delta = (self.learning_rate / self.n_neurons) * past_activity.reshape(-1, 1) * error.reshape(1, -1)
+						self.d[:] += delta
 					value = np.dot(activity, self.d)
 					return value
 
-			class ActorNode(nengo.Node):
-				def __init__(self, n_neurons, n_actions, d):
-					self.n_neurons = n_neurons
-					self.n_actions = n_actions
-					self.size_in = n_neurons
-					self.size_out = n_actions
-					self.d = d
-					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
-				def step(self, t, x):
-					activity = x[:self.n_neurons] 
-					values = np.dot(activity, self.d)
-					return values
-
 			class CriticErrorNode(nengo.Node):
-				def __init__(self, n_neurons, d=None, learning_rate=0, turn_time=1e-3, gamma=0.99):
+				def __init__(self, n_neurons, turn_time=1e-3, gamma=0.99):
 					self.n_neurons = n_neurons
 					self.size_in = n_neurons + 3
 					self.size_out = 1
-					self.d = d
-					self.learning_rate = learning_rate
 					self.gamma = gamma
 					self.turn_time = turn_time
 					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
@@ -1065,19 +1061,14 @@ class NengoActorCritic():
 						error = past_reward + self.gamma*value - past_value  # normal RL update
 					elif 5*self.turn_time < t:
 						error = past_reward - past_value # the target value in the 6th turn is simply the reward
-					# update decoders based on delayed activities and the associated value error
-					delta = (self.learning_rate / self.n_neurons) * past_activity.reshape(-1, 1) * error
-					self.d[:] += delta
 					return error  # return the value error, which is fed to the ActorNode for online learning
 
 			class ActorErrorNode(nengo.Node):
-				def __init__(self, n_neurons, n_actions, d=None, learning_rate=0):
+				def __init__(self, n_neurons, n_actions):
 					self.n_neurons = n_neurons
 					self.n_actions = n_actions
 					self.size_in = n_neurons + n_actions + 2
 					self.size_out = n_actions
-					self.d = d
-					self.learning_rate = learning_rate
 					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
 				def step(self, t, x):
 					past_activity = x[:self.n_neurons]  # delayed synaptic activities from "state" population
@@ -1086,66 +1077,89 @@ class NengoActorCritic():
 					value_error = x[-1]  # value error associated with past activities, from CriticNode
 					error = -value_error * action_probs  # non-chosen actions
 					error[past_action] = value_error*(1-action_probs[past_action])  # chosen action
-					# update decoders based on delayed activities and the associated actor error
-					delta = (self.learning_rate / self.n_neurons) * past_activity.reshape(-1, 1) * error.reshape(1, -1)
-					self.d[:] += delta
 					return error
 
-			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=self.n_inputs)
+			class ActorChoiceNode(nengo.Node):
+				def __init__(self, n_neurons, n_actions, rng, temperature=1):
+					self.n_neurons = n_neurons
+					self.n_actions = n_actions
+					self.size_in = n_actions
+					self.size_out = n_actions + 1
+					self.rng = rng
+					self.temperature = temperature
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					action_values = x
+					action_probs = scipy.special.softmax(action_values / self.temperature)
+					action_choice = self.rng.choice(np.arange(self.n_actions), p=action_probs)
+					result = np.concatenate((action_probs, [action_choice]))
+					return result
+
+			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=n_inputs)
 			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=1)
 			past_action = nengo.Node(lambda t, x: self.action_input.get(),size_in=2, size_out=1)
-			past_probs = nengo.Node(lambda t, x: self.probs_input.get(), size_in=2, size_out=self.n_actions)
+			past_probs = nengo.Node(lambda t, x: self.probs_input.get(), size_in=2, size_out=n_actions)
 
-			state = nengo.Ensemble(self.n_neurons, self.n_inputs, seed=self.seed,
-				intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
-			state_delayed = nengo.Ensemble(self.n_neurons, self.n_inputs, seed=self.seed,
-				intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
-			critic = CriticNode(self.n_neurons, d=self.d_critic)
-			critic_delayed = CriticNode(self.n_neurons, d=self.d_critic)
-			actor = ActorNode(self.n_neurons, self.n_actions, d=self.d_actor)
-			critic_error = CriticErrorNode(self.n_neurons, d=self.d_critic, learning_rate=self.critic_rate, turn_time=self.turn_time, gamma=self.gamma)
-			actor_error = ActorErrorNode(self.n_neurons, self.n_actions, d=self.d_actor, learning_rate=self.actor_rate)
+			state = nengo.Ensemble(n_neurons, n_inputs, seed=seed, intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
+			state_delayed = nengo.Ensemble(n_neurons, n_inputs, seed=seed, intercepts=self.intercepts, encoders=self.encoders, neuron_type=nengo.LIFRate())
+			critic = PESNode(n_neurons, d=self.d_critic, learning_rate=self.critic_rate)
+			critic_delayed = PESNode(n_neurons, d=self.d_critic, learning_rate=0)
+			actor = PESNode(n_neurons, d=self.d_actor, learning_rate=self.actor_rate)
+			critic_error = CriticErrorNode(n_neurons, turn_time=self.turn_time, gamma=self.gamma)
+			actor_error = ActorErrorNode(n_neurons, n_actions)
+			actor_choice = ActorChoiceNode(n_neurons, n_actions, self.rng)
 			state_memory = []
-			for s in range(self.n_inputs):
+			for s in range(n_inputs):
 				state_memory.append(nengolib.networks.RollingWindow(
 					theta=self.turn_time, n_neurons=self.n_neurons, neuron_type=nengo.LIFRate(),
-					seed=self.seed, legendre=True, dimensions=self.q, process=None))
+					seed=seed, legendre=True, dimensions=self.q, process=None))
 
-			nengo.Connection(state_input, state, synapse=None, seed=self.seed)
-			for s in range(self.n_inputs):
-				nengo.Connection(state_input[s], state_memory[s].input, synapse=None, seed=self.seed)
-				nengo.Connection(state_memory[s].output, state_delayed[s], synapse=None, seed=self.seed)
+			nengo.Connection(state_input, state, synapse=None, seed=seed)
 
-			nengo.Connection(state.neurons, actor, synapse=None, seed=self.seed)
-			nengo.Connection(state.neurons, critic, synapse=None, seed=self.seed)
-			nengo.Connection(state_delayed.neurons, critic_delayed, synapse=None, seed=self.seed)
+			for s in range(n_inputs):
+				nengo.Connection(state_input[s], state_memory[s].input, synapse=None, seed=seed)
+				nengo.Connection(state_memory[s].output, state_delayed[s], synapse=None, seed=seed)
+			# nengo.Connection(state_input, state_delayed, synapse=self.delay, seed=seed)
 
-			nengo.Connection(state_delayed.neurons, critic_error[:self.n_neurons], synapse=None, seed=self.seed)
-			nengo.Connection(critic, critic_error[-3], synapse=None, seed=self.seed)
-			nengo.Connection(critic_delayed, critic_error[-2], synapse=None, seed=self.seed)
-			nengo.Connection(past_reward, critic_error[-1], synapse=None, seed=self.seed)
+			nengo.Connection(state.neurons, actor[:n_neurons], synapse=None, seed=seed)
+			nengo.Connection(state_delayed.neurons, actor[n_neurons: 2*n_neurons], synapse=None, seed=seed)
+			nengo.Connection(actor_error, actor[2*n_neurons:], synapse=0, seed=seed)
 
-			nengo.Connection(state_delayed.neurons, actor_error[:self.n_neurons], synapse=None, seed=self.seed)
-			nengo.Connection(past_probs, actor_error[self.n_neurons: self.n_neurons+self.n_actions], synapse=None, seed=self.seed)
-			nengo.Connection(past_action, actor_error[-2], synapse=None, seed=self.seed)  # past choice
-			nengo.Connection(critic_error, actor_error[-1], synapse=None, seed=self.seed)  # value error
+			nengo.Connection(state.neurons, critic[:n_neurons], synapse=None, seed=seed)
+			nengo.Connection(state_delayed.neurons, critic[n_neurons: 2*self.n_neurons], synapse=None, seed=seed)
+			nengo.Connection(critic_error, critic[2*n_neurons:], synapse=0, seed=seed)
+
+			nengo.Connection(state_delayed.neurons, critic_delayed[:n_neurons], synapse=None, seed=seed)
+
+			nengo.Connection(state_delayed.neurons, critic_error[:n_neurons], synapse=None, seed=seed)
+			nengo.Connection(critic, critic_error[-3], synapse=None, seed=seed)
+			nengo.Connection(critic_delayed, critic_error[-2], synapse=None, seed=seed)
+			nengo.Connection(past_reward, critic_error[-1], synapse=None, seed=seed)
+
+			nengo.Connection(state_delayed.neurons, actor_error[:n_neurons], synapse=None, seed=seed)
+			nengo.Connection(past_probs, actor_error[n_neurons: n_neurons+n_actions], synapse=None, seed=seed)
+			nengo.Connection(past_action, actor_error[-2], synapse=None, seed=seed)
+			nengo.Connection(critic_error, actor_error[-1], synapse=None, seed=seed)
+
+			nengo.Connection(actor, actor_choice, synapse=None, seed=seed)
 
 			network.p_actor = nengo.Probe(actor, synapse=None)
+			network.p_action_probs = nengo.Probe(actor_choice[:-1], synapse=None)
+			network.p_action_choice = nengo.Probe(actor_choice[-1], synapse=None)
 			network.actor = actor
 			network.critic = critic
 			network.actor_error = actor_error
 			network.critic_error = critic_error
+			network.actor_choice = actor_choice
 
 		return network
 
 	def simulate_action(self):
 		self.simulator.run(self.turn_time, progress_bar=False)
-		x_actor = self.simulator.data[self.network.p_actor][-1]
-		if self.explore_method=='boltzmann':
-			temperature = self.explore*np.power(self.explore_decay, self.episode)
-			action_probs = scipy.special.softmax(x_actor / temperature)
-			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)
-		return action, action_probs
+		action_values = self.simulator.data[self.network.p_actor][-1]
+		action_probs = self.simulator.data[self.network.p_action_probs][-1]
+		action_choice = self.simulator.data[self.network.p_action_choice][-1]
+		return action_choice, action_probs
 
 	def move(self, game):
 		game_state = get_state(self.player, self.representation, game=game, return_type='one-hot',
@@ -1158,6 +1172,8 @@ class NengoActorCritic():
 		if not game.train:
 			self.network.critic_error.learning_rate = 0
 			self.network.actor_error.learning_rate = 0
+		# set temperature for softmax action selection
+		self.network.actor_choice.temperature = self.explore*np.power(self.explore_decay, self.episode)
 		# simulate the network with these inputs and collect the action outputs
 		action, action_probs = self.simulate_action()
 		# translate action into environment-appropriate signal
@@ -1166,13 +1182,10 @@ class NengoActorCritic():
 		# save the chosen action for online learning in the next turn
 		self.action_input.set(action_idx)
 		self.probs_input.set(action_probs)
-		# save weights for the next game
-		self.d_critic = self.network.critic.d
-		self.d_actor = self.network.actor.d
 		return give, keep
 
 	def learn(self, game):
-		# Learning rules are applied online based on per-turn rewards, so most update happens in the move() step
+		# Learning rules are applied online based on per-turn rewards, so decoder update happens in the move() step
 		# However, we must run one final turn of simulation to permit learning on the last turn.
 		# Learner and fixed agents will not make any additional moves that are added to the game history,
 		# but the moves recorded on the last turn will be given an opportunity of affect weight update through PES
