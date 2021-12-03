@@ -1046,14 +1046,16 @@ class NengoActorCritic():
 			class ActorErrorNode(nengo.Node):
 				def __init__(self, n_actions):
 					self.n_actions = n_actions
-					self.size_in = n_actions + 2
+					self.size_in = 2*n_actions + 2
 					self.size_out = n_actions
 					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
 				def step(self, t, x):
 					action_probs = x[:self.n_actions]  # values for each action, as given by the actor (past state)
+					error = x[self.n_actions: 2*self.n_actions]  # = -value_error * action_probs, for non-chosen actions
 					past_action = int(x[-2])  # action that was previously selected by the learning agent (past state)
 					value_error = x[-1]  # value error associated with past activities, from CriticNode
-					error = -value_error * action_probs  # non-chosen actions
+					# error = -value_error * action_probs  # non-chosen actions
+					# error[past_action] = value_error*(1-action_probs[past_action])  # chosen action
 					error[past_action] = value_error*(1-action_probs[past_action])  # chosen action
 					return error
 
@@ -1072,6 +1074,29 @@ class NengoActorCritic():
 					action_choice = self.rng.choice(np.arange(self.n_actions), p=action_probs)
 					result = np.concatenate((action_probs, [action_choice]))
 					return result
+
+			class RescaleNode(nengo.Node):
+				def __init__(self, dimensions):
+					self.dimensions = dimensions
+					self.max_value = 0
+					self.size_in = dimensions
+					self.size_out = dimensions
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					if np.abs(x) > self.max_value:
+						self.max_value = np.abs(x)  # takes the biggest value it's seen and use it to normalize x
+					return x / self.max_value
+
+			class MultiplyNode(nengo.Node):
+				def __init__(self, n_actions):
+					self.n_actions = n_actions
+					self.size_in = n_actions + 1
+					self.size_out = n_actions
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					action_probs = x[n_actions:]
+					value_error = x[-1]
+					return value_error * action_probs
 
 			def learning_control(t, x):
 				if t<=self.turn_time:
@@ -1100,6 +1125,9 @@ class NengoActorCritic():
 			critic_delayed = nengo.Ensemble(n_neurons, 1, radius=100, neuron_type=nengo.LIFRate(), seed=seed)
 			actor = nengo.Ensemble(5*n_neurons, n_actions, radius=100, neuron_type=nengo.LIFRate(), seed=seed)
 			critic_error = nengo.Ensemble(n_neurons, 1, radius=30, neuron_type=nengo.LIFRate(), seed=seed)
+			rescaled_value_error = RescaleNode(1)
+			value_error_times_action_probs = nengo.Ensemble(5*n_neurons, self.n_actions+1, neuron_type=nengo.LIFRate(), seed=seed)
+			# value_error_times_action_probs = MultiplyNode(n_actions)
 			critic_pes = PESNode(n_neurons, d=self.d_critic, learning_rate=self.critic_rate)
 			critic_delayed_pes = PESNode(n_neurons, d=self.d_critic, learning_rate=0)
 			actor_pes = PESNode(n_neurons, d=self.d_actor, learning_rate=self.actor_rate)
@@ -1133,11 +1161,22 @@ class NengoActorCritic():
 			nengo.Connection(critic_pes, critic, synapse=None, seed=seed)
 			nengo.Connection(critic_delayed_pes, critic_delayed, synapse=None, seed=seed)
 
-			# compute actor and critic errors
+			# compute critic error
 			nengo.Connection(critic, critic_error, transform=self.gamma, synapse=None, seed=seed)
 			nengo.Connection(critic_delayed, critic_error, transform=-1, synapse=None, seed=seed)
 			nengo.Connection(reward, critic_error, synapse=None, seed=seed)
+
+			# rescale the value error and multiply it by the action probs
+			nengo.Connection(past_probs, value_error_times_action_probs[:n_actions], synapse=None, seed=seed)
+			nengo.Connection(critic_error, rescaled_value_error, synapse=None, seed=seed)
+			nengo.Connection(rescaled_value_error, value_error_times_action_probs[-1], transform=-1, synapse=None, seed=seed)
+			# nengo.Connection(rescaled_value_error, value_error_times_action_probs.input_a, synapse=None, seed=seed)
+			# nengo.Connection(past_probs, value_error_times_action_probs.input_b, synapse=None, seed=seed)
+
+			# compute actor error
 			nengo.Connection(past_probs, actor_error[:n_actions], synapse=None, seed=seed)
+			# nengo.Connection(value_error_times_action_probs, actor_error[n_actions: 2*n_actions])
+			nengo.Connection(value_error_times_action_probs, actor_error[n_actions: 2*n_actions], function=lambda x: x[:-1]*x[-1])
 			nengo.Connection(past_action, actor_error[-2], synapse=None, seed=seed)
 			nengo.Connection(critic_error, actor_error[-1], synapse=None, seed=seed)
 
