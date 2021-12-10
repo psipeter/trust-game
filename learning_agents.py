@@ -908,7 +908,8 @@ class NengoActorCritic():
 		def set(self, player, game):
 			rewards = game.investor_reward if player=='investor' else game.trustee_reward
 			reward = rewards[-1] if len(rewards)>0 else 0
-			self.history.append(reward)
+			max_reward = game.coins * game.match
+			self.history.append(reward / max_reward)
 		def clear(self):
 			self.history.clear()
 		def get(self):
@@ -945,18 +946,23 @@ class NengoActorCritic():
 			self.value_pos = value_pos
 			self.value_neg = value_neg
 			self.vector = None
-		def set(self, epsilon):
+			self.epsilon = None
+			self.temperature = None
+		def set(self, explore, explore_decay, episode):
+			self.epsilon = np.power(explore_decay, episode)
+			self.temperature = explore*np.power(explore_decay, episode)
 			action = self.rng.randint(self.n_actions)
-			self.vector = np.zeros((self.n_actions))
-			if self.rng.uniform(0,1) < epsilon:
+			self.vector = np.zeros((self.n_actions+1))
+			if self.rng.uniform(0,1) < self.epsilon:
 				self.vector[~action] = self.value_neg
 				self.vector[action] = self.value_pos
+			self.vector[-1] = self.temperature
 		def get(self):
 			return self.vector
 
-	def __init__(self, player, seed=0, n_actions=11, ID="nengo-actor-critic", representation='turn-gen-opponent',
+	def __init__(self, player, seed=0, n_actions=5, ID="nengo-actor-critic", representation='turn-gen-opponent',
 			encoder_method='one-hot', actor_rate=3e-6, critic_rate=3e-6, n_neurons=100, dt=1e-3, turn_time=1e-1, q=6,
-			explore_method='boltzmann', explore=100, explore_decay=0.995, gamma=0.99):
+			explore_method='boltzmann', explore=100, explore_decay=0.998, gamma=0.99):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -1099,23 +1105,30 @@ class NengoActorCritic():
 				past_reward = x[2]				
 				return past_reward + value - past_value
 
+			def softmax_function(x):
+				actor_values = x[:-1]
+				temperature = x[-1]
+				return scipy.special.softmax(actor_values / temperature)
+
 			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=n_inputs)
 			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=1)
 			past_action = nengo.Node(lambda t, x: self.action_input.get(),size_in=2, size_out=1)
 			past_probs = nengo.Node(lambda t, x: self.probs_input.get(), size_in=2, size_out=n_actions)
-			explore = nengo.Node(lambda t, x: self.explore_input.get(), size_in=2, size_out=n_actions)
+			explore = nengo.Node(lambda t, x: self.explore_input.get(), size_in=2, size_out=n_actions+1)
 			inhibit_learning = nengo.Node(learning_control, size_in=2, size_out=3)
 
 			state = nengo.Ensemble(n_neurons, n_inputs, intercepts=self.intercepts, encoders=self.encoders)
-			reward = nengo.Ensemble(n_neurons, 1, radius=30)
-			critic = nengo.Ensemble(n_neurons, 1, radius=100)
-			actor = nengo.networks.EnsembleArray(n_neurons, n_actions, radius=100)
-			critic_gate = nengo.networks.EnsembleArray(n_neurons, 3, radius=30)
-			critic_error = nengo.Ensemble(n_neurons, 1, radius=30)
+			reward = nengo.Ensemble(n_neurons, 1)
+			critic = nengo.Ensemble(n_neurons, 1, radius=10)
+			actor = nengo.networks.EnsembleArray(n_neurons, n_actions, radius=15)
+			critic_gate = nengo.networks.EnsembleArray(n_neurons, 3, radius=20)
+			critic_error = nengo.Ensemble(n_neurons, 1, radius=20)
 			critic_pes = PESNode(n_neurons, d=self.d_critic, learning_rate=self.critic_rate)
 			actor_pes = PESNode(n_neurons, d=self.d_actor, learning_rate=self.actor_rate)
 			actor_error = ActorErrorNode(n_actions)
-			softmax = SoftmaxNode(n_actions)
+			softmax = nengo.Ensemble(n_actions*n_neurons, n_actions+1, radius=15)
+			softmax_result = nengo.Node(size_in=n_actions)
+			# softmax = SoftmaxNode(n_actions)
 			# choice = ChoiceNode(n_actions, self.rng)
 			basal_ganglia = nengo.networks.BasalGanglia(n_actions, n_neurons)
 			thalamus = nengo.networks.Thalamus(n_actions, n_neurons)
@@ -1153,10 +1166,13 @@ class NengoActorCritic():
 			nengo.Connection(inhibit_learning[2], critic_gate.ea_ensembles[2].neurons, transform=w_inh, synapse=None)
 
 			# compute action probabilities and select an action
-			nengo.Connection(actor.output, softmax, synapse=None)
+			nengo.Connection(actor.output, softmax[:-1], synapse=None)  # actor values
+			nengo.Connection(explore[-1], softmax[-1], synapse=None)  # temperature
 			# nengo.Connection(softmax, choice, synapse=None)
-			nengo.Connection(softmax, basal_ganglia.input, synapse=None)
-			nengo.Connection(explore, basal_ganglia.input, synapse=None)
+			# nengo.Connection(softmax, basal_ganglia.input, synapse=None)
+			nengo.Connection(softmax, softmax_result, function=softmax_function, synapse=None)
+			nengo.Connection(softmax, basal_ganglia.input, function=softmax_function, synapse=None)
+			nengo.Connection(explore[:-1], basal_ganglia.input, synapse=None)  # epsilon random action
 			nengo.Connection(basal_ganglia.output, thalamus.input, synapse=None)
 
 
@@ -1164,7 +1180,8 @@ class NengoActorCritic():
 			network.p_critic = nengo.Probe(critic)
 			network.p_reward = nengo.Probe(reward)
 			network.p_critic_error = nengo.Probe(critic_error)
-			network.p_probs = nengo.Probe(softmax)
+			network.p_actor_error = nengo.Probe(actor_error)
+			network.p_probs = nengo.Probe(softmax_result)
 			# network.p_choice = nengo.Probe(choice)
 			network.p_basal_ganglia = nengo.Probe(basal_ganglia.output)
 			network.p_thalamus = nengo.Probe(thalamus.output)
@@ -1177,13 +1194,19 @@ class NengoActorCritic():
 	def simulate_action(self):
 		self.simulator.run(self.turn_time, progress_bar=False)
 		actor = self.simulator.data[self.network.p_actor][-1]
+		actor_error = self.simulator.data[self.network.p_actor_error][-1]
 		critic = self.simulator.data[self.network.p_critic][-1]
+		critic_error = self.simulator.data[self.network.p_critic_error][-1]
 		probs = self.simulator.data[self.network.p_probs][-1]
 		# action = self.simulator.data[self.network.p_choice][-1]
 		bg = self.simulator.data[self.network.p_basal_ganglia][-1]
 		thalamus = self.simulator.data[self.network.p_thalamus][-1]
 		# action = np.argmax(thalamus)
 		action = np.argmax(thalamus) if np.std(thalamus)>0.1 else self.rng.randint(self.n_actions)
+		print('critic', critic)
+		print('critic error', critic_error)
+		print('actor', actor)
+		print('actor_error', actor_error)
 		# print('probs', probs)
 		# print('bg', bg)
 		# print('action', action)
@@ -1203,7 +1226,7 @@ class NengoActorCritic():
 		# set temperature for softmax action selection
 		self.network.softmax.temperature = self.explore*np.power(self.explore_decay, self.episode)
 		# epsilon-exploration
-		self.explore_input.set(np.power(self.explore_decay, self.episode))
+		self.explore_input.set(self.explore, self.explore_decay, self.episode)
 		# simulate the network with these inputs and collect the action outputs
 		action, probs = self.simulate_action()
 		# translate action into environment-appropriate signal
