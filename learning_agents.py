@@ -1,7 +1,7 @@
 import numpy as np
 import random
 import os
-# import torch
+import torch
 import scipy
 import nengo
 import nengolib
@@ -190,236 +190,228 @@ class TabularActorCritic():
 				self.critic[state] += self.critic_rate * delta
 
 
+class DeepQLearning():
+
+	class Critic(torch.nn.Module):
+		def __init__(self, n_neurons, n_inputs, n_outputs):
+			torch.nn.Module.__init__(self)
+			self.input = torch.nn.Linear(n_inputs, n_neurons)
+			self.hidden = torch.nn.Linear(n_neurons, n_neurons)
+			self.output = torch.nn.Linear(n_neurons, n_outputs)
+		def forward(self, x):
+			x = torch.nn.functional.relu(self.input(x))
+			x = torch.nn.functional.relu(self.hidden(x))
+			x = self.output(x)
+			return x
+
+	def __init__(self, player, seed=0, n_actions=11, n_neurons=200, ID="deep-q-learning", representation='turn-gen-opponent',
+			explore_method='boltzmann', explore=100, explore_decay=0.998,
+			learning_method='TD0', critic_rate=1e-2, gamma=0.99, lambd=0.8):
+		self.player = player
+		self.ID = ID
+		self.seed = seed
+		self.rng = np.random.RandomState(seed=seed)
+		self.gamma = gamma
+		self.lambd = lambd
+		self.representation = representation
+		self.critic_rate = critic_rate
+		self.explore = explore
+		self.explore_decay = explore_decay
+		self.explore_method = explore_method
+		self.n_inputs = get_n_inputs(representation, player, n_actions)
+		self.n_actions = n_actions
+		self.n_neurons = n_neurons
+		self.learning_method = learning_method
+		torch.manual_seed(seed)
+		self.critic = self.Critic(self.n_neurons, self.n_inputs, self.n_actions)
+		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), self.critic_rate)
+		self.critic_value_history = []
+		self.action_history = []
+		self.state = None
+		self.episode = 0
+
+	def reinitialize(self, player):
+		self.__init__(player)
+
+	def new_game(self):
+		self.critic_value_history.clear()
+		self.action_history.clear()
+		self.episode += 1
+
+	def move(self, game):
+		game_state = get_state(self.player, self.representation, game=game, return_type='tensor',
+			dim=self.n_inputs, n_actions=self.n_actions)
+		# Estimate the value of the current game_state
+		critic_values = self.critic(game_state)
+		# Choose and action based on thees values and some exploration strategy
+		if self.explore_method=='epsilon':
+			epsilon = self.explore*np.power(self.explore_decay, self.episode)
+			if self.rng.uniform(0, 1) < epsilon:
+				action = torch.LongTensor([self.rng.randint(self.n_actions)])
+			else:
+				action = torch.argmax(critic_values)
+		elif self.explore_method=='boltzmann':
+			temperature = self.explore*np.power(self.explore_decay, self.episode)
+			action_probs = torch.nn.functional.softmax(critic_values / temperature, dim=0)
+			action_dist = torch.distributions.categorical.Categorical(probs=action_probs)
+			action = action_dist.sample()	
+		else:
+			action = torch.argmax(critic_values)
+		# translate action into environment-appropriate signal
+		self.state = action.detach().numpy() / (self.n_actions-1)
+		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
+		self.critic_value_history.append(critic_values)
+		# self.critic_value_history.append(critic_values[action_idx])
+		self.action_history.append(action_idx)
+		return give, keep
+
+	def learn(self, game):
+		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
+		if self.learning_method=='MC':
+			returns = []
+			return_sum = 0
+			for t in np.arange(game.turns)[::-1]:
+				return_sum += rewards[t]
+				returns.insert(0, return_sum)
+		else:
+			returns = rewards
+		critic_losses = []
+		for t in np.arange(game.turns):
+			action = self.action_history[t]
+			value = self.critic_value_history[t][action]
+			next_action = self.action_history[t+1] if t<game.turns-1 else 0
+			next_value = torch.max(self.critic_value_history[t+1]) if t<game.turns-1 else 0
+			# next_value = self.critic_value_history[t+1][next_action] if t<game.turns-1 else 0
+			reward = torch.FloatTensor([returns[t]])
+			delta = reward + self.gamma*next_value - value
+			critic_loss = delta**2
+			critic_losses.append(critic_loss)
+		critic_loss = torch.stack(critic_losses).sum()
+		self.critic_optimizer.zero_grad()
+		critic_loss.backward()
+		self.critic_optimizer.step()
 
 
 
+class DeepActorCritic():
 
+	class Actor(torch.nn.Module):
+		def __init__(self, n_neurons, n_inputs, n_outputs):
+			torch.nn.Module.__init__(self)
+			self.input = torch.nn.Linear(n_inputs, n_neurons)
+			self.hidden = torch.nn.Linear(n_neurons, n_neurons)
+			self.output = torch.nn.Linear(n_neurons, n_outputs)
+		def forward(self, x):
+			x = torch.nn.functional.relu(self.input(x))
+			x = torch.nn.functional.relu(self.hidden(x))
+			x = self.output(x)
+			return x
 
+	class Critic(torch.nn.Module):
+		def __init__(self, n_neurons, n_inputs, n_outputs):
+			torch.nn.Module.__init__(self)
+			self.input = torch.nn.Linear(n_inputs, n_neurons)
+			self.hidden = torch.nn.Linear(n_neurons, n_neurons)
+			self.output = torch.nn.Linear(n_neurons, n_outputs)
+		def forward(self, x):
+			x = torch.nn.functional.relu(self.input(x))
+			x = torch.nn.functional.relu(self.hidden(x))
+			x = self.output(x)
+			return x
 
+	def __init__(self, player, seed=0, n_actions=11, n_neurons=200, ID="deep-actor-critic", representation='turn-gen-opponent',
+			explore_method='boltzmann', explore=100, explore_decay=0.998,
+			learning_method='TD0', critic_rate=2e-3, actor_rate=2e-3, gamma=0.99):
+		self.player = player
+		self.ID = ID
+		self.seed = seed
+		self.rng = np.random.RandomState(seed=seed)
+		self.gamma = gamma
+		self.representation = representation
+		self.learning_method = learning_method
+		self.actor_rate = actor_rate
+		self.critic_rate = critic_rate
+		self.explore = explore
+		self.explore_decay = explore_decay
+		self.explore_method = explore_method
+		self.n_inputs = get_n_inputs(representation, player, n_actions)
+		self.n_actions = n_actions
+		self.n_neurons = n_neurons
+		torch.manual_seed(seed)
+		self.actor = self.Actor(self.n_neurons, self.n_inputs, self.n_actions)
+		self.critic = self.Critic(self.n_neurons, self.n_inputs, 1)
+		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), self.critic_rate)
+		self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), self.actor_rate)
+		self.action_probs_history = []
+		self.critic_value_history = []
+		self.state = None
+		self.episode = 0
 
+	def reinitialize(self, player):
+		self.__init__(player)
 
-# class DeepQLearning():
+	def new_game(self):
+		self.action_probs_history.clear()
+		self.critic_value_history.clear()
+		self.episode += 1
 
-# 	class Critic(torch.nn.Module):
-# 		def __init__(self, n_neurons, n_inputs, n_outputs):
-# 			torch.nn.Module.__init__(self)
-# 			self.input = torch.nn.Linear(n_inputs, n_neurons)
-# 			self.hidden = torch.nn.Linear(n_neurons, n_neurons)
-# 			self.output = torch.nn.Linear(n_neurons, n_outputs)
-# 		def forward(self, x):
-# 			x = torch.nn.functional.relu(self.input(x))
-# 			x = torch.nn.functional.relu(self.hidden(x))
-# 			x = self.output(x)
-# 			return x
+	def move(self, game):
+		game_state = get_state(self.player, self.representation, game=game, return_type='tensor',
+			dim=self.n_inputs, n_actions=self.n_actions)
+		# Compute action probabilities for the current state and sample action from that distribution
+		action_values = self.actor(game_state)
+		if self.explore_method=='boltzmann':
+			temperature = self.explore * np.power(self.explore_decay, self.episode)
+			action_probs = torch.nn.functional.softmax(action_values / temperature, dim=0)
+			action_dist = torch.distributions.categorical.Categorical(probs=action_probs)
+			action = action_dist.sample()
+		else:
+			action = torch.argmax(action_values)
+		# Estimate value of the current game state
+		critic_values = self.critic(game_state)
+		# translate action into environment-appropriate signal
+		self.state = action.detach().numpy() / (self.n_actions-1)
+		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
+		# record the actor and critic outputs for end-of-game learning
+		# log_prob = torch.log(action_probs.gather(index=torch.LongTensor([action_idx]), dim=0))
+		log_prob = torch.log(action_probs.gather(index=action, dim=0))
+		self.critic_value_history.append(critic_values)
+		self.action_probs_history.append(log_prob)
+		return give, keep
 
-# 	def __init__(self, player, seed=0, n_actions=11, n_neurons=200, ID="deep-q-learning", representation='turn-gen-opponent',
-# 			explore_method='boltzmann', explore=100, explore_decay=0.998,
-# 			learning_method='TD0', critic_rate=1e-2, gamma=0.99, lambd=0.8):
-# 		self.player = player
-# 		self.ID = ID
-# 		self.seed = seed
-# 		self.rng = np.random.RandomState(seed=seed)
-# 		self.gamma = gamma
-# 		self.lambd = lambd
-# 		self.representation = representation
-# 		self.critic_rate = critic_rate
-# 		self.explore = explore
-# 		self.explore_decay = explore_decay
-# 		self.explore_method = explore_method
-# 		self.n_inputs = get_n_inputs(representation, player, n_actions)
-# 		self.n_actions = n_actions
-# 		self.n_neurons = n_neurons
-# 		self.learning_method = learning_method
-# 		torch.manual_seed(seed)
-# 		self.critic = self.Critic(self.n_neurons, self.n_inputs, self.n_actions)
-# 		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), self.critic_rate)
-# 		self.critic_value_history = []
-# 		self.action_history = []
-# 		self.state = None
-# 		self.episode = 0
-
-# 	def reinitialize(self, player):
-# 		self.__init__(player)
-
-# 	def new_game(self):
-# 		self.critic_value_history.clear()
-# 		self.action_history.clear()
-# 		self.episode += 1
-
-# 	def move(self, game):
-# 		game_state = get_state(self.player, self.representation, game=game, return_type='tensor',
-# 			dim=self.n_inputs, n_actions=self.n_actions)
-# 		# Estimate the value of the current game_state
-# 		critic_values = self.critic(game_state)
-# 		# Choose and action based on thees values and some exploration strategy
-# 		if self.explore_method=='epsilon':
-# 			epsilon = self.explore*np.power(self.explore_decay, self.episode)
-# 			if self.rng.uniform(0, 1) < epsilon:
-# 				action = torch.LongTensor([self.rng.randint(self.n_actions)])
-# 			else:
-# 				action = torch.argmax(critic_values)
-# 		elif self.explore_method=='boltzmann':
-# 			temperature = self.explore*np.power(self.explore_decay, self.episode)
-# 			action_probs = torch.nn.functional.softmax(critic_values / temperature, dim=0)
-# 			action_dist = torch.distributions.categorical.Categorical(probs=action_probs)
-# 			action = action_dist.sample()	
-# 		else:
-# 			action = torch.argmax(critic_values)
-# 		# translate action into environment-appropriate signal
-# 		self.state = action.detach().numpy() / (self.n_actions-1)
-# 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
-# 		self.critic_value_history.append(critic_values)
-# 		# self.critic_value_history.append(critic_values[action_idx])
-# 		self.action_history.append(action_idx)
-# 		return give, keep
-
-# 	def learn(self, game):
-# 		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
-# 		if self.learning_method=='MC':
-# 			returns = []
-# 			return_sum = 0
-# 			for t in np.arange(game.turns)[::-1]:
-# 				return_sum += rewards[t]
-# 				returns.insert(0, return_sum)
-# 		else:
-# 			returns = rewards
-# 		critic_losses = []
-# 		for t in np.arange(game.turns):
-# 			action = self.action_history[t]
-# 			value = self.critic_value_history[t][action]
-# 			next_action = self.action_history[t+1] if t<game.turns-1 else 0
-# 			next_value = torch.max(self.critic_value_history[t+1]) if t<game.turns-1 else 0
-# 			# next_value = self.critic_value_history[t+1][next_action] if t<game.turns-1 else 0
-# 			reward = torch.FloatTensor([returns[t]])
-# 			delta = reward + self.gamma*next_value - value
-# 			critic_loss = delta**2
-# 			critic_losses.append(critic_loss)
-# 		critic_loss = torch.stack(critic_losses).sum()
-# 		self.critic_optimizer.zero_grad()
-# 		critic_loss.backward()
-# 		self.critic_optimizer.step()
-
-
-
-# class DeepActorCritic():
-
-# 	class Actor(torch.nn.Module):
-# 		def __init__(self, n_neurons, n_inputs, n_outputs):
-# 			torch.nn.Module.__init__(self)
-# 			self.input = torch.nn.Linear(n_inputs, n_neurons)
-# 			self.hidden = torch.nn.Linear(n_neurons, n_neurons)
-# 			self.output = torch.nn.Linear(n_neurons, n_outputs)
-# 		def forward(self, x):
-# 			x = torch.nn.functional.relu(self.input(x))
-# 			x = torch.nn.functional.relu(self.hidden(x))
-# 			x = self.output(x)
-# 			return x
-
-# 	class Critic(torch.nn.Module):
-# 		def __init__(self, n_neurons, n_inputs, n_outputs):
-# 			torch.nn.Module.__init__(self)
-# 			self.input = torch.nn.Linear(n_inputs, n_neurons)
-# 			self.hidden = torch.nn.Linear(n_neurons, n_neurons)
-# 			self.output = torch.nn.Linear(n_neurons, n_outputs)
-# 		def forward(self, x):
-# 			x = torch.nn.functional.relu(self.input(x))
-# 			x = torch.nn.functional.relu(self.hidden(x))
-# 			x = self.output(x)
-# 			return x
-
-# 	def __init__(self, player, seed=0, n_actions=11, n_neurons=200, ID="deep-actor-critic", representation='turn-gen-opponent',
-# 			explore_method='boltzmann', explore=100, explore_decay=0.998,
-# 			learning_method='TD0', critic_rate=2e-3, actor_rate=2e-3, gamma=0.99):
-# 		self.player = player
-# 		self.ID = ID
-# 		self.seed = seed
-# 		self.rng = np.random.RandomState(seed=seed)
-# 		self.gamma = gamma
-# 		self.representation = representation
-# 		self.learning_method = learning_method
-# 		self.actor_rate = actor_rate
-# 		self.critic_rate = critic_rate
-# 		self.explore = explore
-# 		self.explore_decay = explore_decay
-# 		self.explore_method = explore_method
-# 		self.n_inputs = get_n_inputs(representation, player, n_actions)
-# 		self.n_actions = n_actions
-# 		self.n_neurons = n_neurons
-# 		torch.manual_seed(seed)
-# 		self.actor = self.Actor(self.n_neurons, self.n_inputs, self.n_actions)
-# 		self.critic = self.Critic(self.n_neurons, self.n_inputs, 1)
-# 		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), self.critic_rate)
-# 		self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), self.actor_rate)
-# 		self.action_probs_history = []
-# 		self.critic_value_history = []
-# 		self.state = None
-# 		self.episode = 0
-
-# 	def reinitialize(self, player):
-# 		self.__init__(player)
-
-# 	def new_game(self):
-# 		self.action_probs_history.clear()
-# 		self.critic_value_history.clear()
-# 		self.episode += 1
-
-# 	def move(self, game):
-# 		game_state = get_state(self.player, self.representation, game=game, return_type='tensor',
-# 			dim=self.n_inputs, n_actions=self.n_actions)
-# 		# Compute action probabilities for the current state and sample action from that distribution
-# 		action_values = self.actor(game_state)
-# 		if self.explore_method=='boltzmann':
-# 			temperature = self.explore * np.power(self.explore_decay, self.episode)
-# 			action_probs = torch.nn.functional.softmax(action_values / temperature, dim=0)
-# 			action_dist = torch.distributions.categorical.Categorical(probs=action_probs)
-# 			action = action_dist.sample()
-# 		else:
-# 			action = torch.argmax(action_values)
-# 		# Estimate value of the current game state
-# 		critic_values = self.critic(game_state)
-# 		# translate action into environment-appropriate signal
-# 		self.state = action.detach().numpy() / (self.n_actions-1)
-# 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
-# 		# record the actor and critic outputs for end-of-game learning
-# 		# log_prob = torch.log(action_probs.gather(index=torch.LongTensor([action_idx]), dim=0))
-# 		log_prob = torch.log(action_probs.gather(index=action, dim=0))
-# 		self.critic_value_history.append(critic_values)
-# 		self.action_probs_history.append(log_prob)
-# 		return give, keep
-
-# 	def learn(self, game):
-# 		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
-# 		actor_losses = []
-# 		critic_losses = []
-# 		if self.learning_method=='MC':
-# 			returns = []
-# 			return_sum = 0
-# 			for t in np.arange(game.turns)[::-1]:
-# 				return_sum += rewards[t]
-# 				returns.insert(0, return_sum)
-# 		else:
-# 			returns = rewards
-# 		for t in np.arange(game.turns):
-# 			value = self.critic_value_history[t]
-# 			next_value = self.critic_value_history[t+1] if t<game.turns-1 else 0
-# 			reward = torch.FloatTensor([returns[t]])
-# 			log_prob = self.action_probs_history[t]
-# 			delta = reward + self.gamma*next_value - value
-# 			actor_loss = -log_prob * delta
-# 			critic_loss = delta**2
-# 			actor_losses.append(actor_loss)
-# 			critic_losses.append(critic_loss)
-# 		actor_loss = torch.stack(actor_losses).sum()
-# 		critic_loss = torch.stack(critic_losses).sum()
-# 		combined_loss = actor_loss + critic_loss
-# 		# print(combined_loss, actor_loss, critic_loss)
-# 		self.actor_optimizer.zero_grad()
-# 		self.critic_optimizer.zero_grad()
-# 		combined_loss.backward()
-# 		# actor_loss.backward(retain_graph=True)
-# 		# critic_loss.backward(retain_graph=True)
-# 		self.actor_optimizer.step()
-# 		self.critic_optimizer.step()
+	def learn(self, game):
+		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
+		actor_losses = []
+		critic_losses = []
+		if self.learning_method=='MC':
+			returns = []
+			return_sum = 0
+			for t in np.arange(game.turns)[::-1]:
+				return_sum += rewards[t]
+				returns.insert(0, return_sum)
+		else:
+			returns = rewards
+		for t in np.arange(game.turns):
+			value = self.critic_value_history[t]
+			next_value = self.critic_value_history[t+1] if t<game.turns-1 else 0
+			reward = torch.FloatTensor([returns[t]])
+			log_prob = self.action_probs_history[t]
+			delta = reward + self.gamma*next_value - value
+			actor_loss = -log_prob * delta
+			critic_loss = delta**2
+			actor_losses.append(actor_loss)
+			critic_losses.append(critic_loss)
+		actor_loss = torch.stack(actor_losses).sum()
+		critic_loss = torch.stack(critic_losses).sum()
+		combined_loss = actor_loss + critic_loss
+		# print(combined_loss, actor_loss, critic_loss)
+		self.actor_optimizer.zero_grad()
+		self.critic_optimizer.zero_grad()
+		combined_loss.backward()
+		# actor_loss.backward(retain_graph=True)
+		# critic_loss.backward(retain_graph=True)
+		self.actor_optimizer.step()
+		self.critic_optimizer.step()
 
 
 
@@ -962,7 +954,7 @@ class NengoActorCritic():
 
 	def __init__(self, player, seed=0, n_actions=5, ID="nengo-actor-critic", representation='turn-gen-opponent',
 			encoder_method='one-hot', actor_rate=3e-6, critic_rate=3e-6, n_neurons=100, dt=1e-3, turn_time=1e-1, q=6,
-			explore_method='boltzmann', explore=100, explore_decay=0.998, gamma=0.99):
+			explore_method='boltzmann', explore=100, explore_decay=0.995, gamma=0.99):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -1090,7 +1082,6 @@ class NengoActorCritic():
 				def step(self, t, x):
 					return self.rng.choice(np.arange(self.n_actions), p=x)
 
-
 			def learning_control(t, x):
 				if t<=self.turn_time:
 					return [1,1,1]  # inhibit all learning on first turn
@@ -1106,9 +1097,7 @@ class NengoActorCritic():
 				return past_reward + value - past_value
 
 			def softmax_function(x):
-				actor_values = x[:-1]
-				temperature = x[-1]
-				return scipy.special.softmax(actor_values / temperature)
+				return scipy.special.softmax(x)
 
 			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=n_inputs)
 			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=1)
@@ -1119,19 +1108,19 @@ class NengoActorCritic():
 
 			state = nengo.Ensemble(n_neurons, n_inputs, intercepts=self.intercepts, encoders=self.encoders)
 			reward = nengo.Ensemble(n_neurons, 1)
-			critic = nengo.Ensemble(n_neurons, 1, radius=10)
-			actor = nengo.networks.EnsembleArray(n_neurons, n_actions, radius=15)
-			critic_gate = nengo.networks.EnsembleArray(n_neurons, 3, radius=20)
-			critic_error = nengo.Ensemble(n_neurons, 1, radius=20)
+			critic = nengo.Ensemble(n_neurons, 1, radius=50)
+			actor = nengo.networks.EnsembleArray(n_neurons, n_actions)
+			critic_gate = nengo.networks.EnsembleArray(n_neurons, 3)
+			critic_error = nengo.Ensemble(n_neurons, 1)
 			critic_pes = PESNode(n_neurons, d=self.d_critic, learning_rate=self.critic_rate)
 			actor_pes = PESNode(n_neurons, d=self.d_actor, learning_rate=self.actor_rate)
 			actor_error = ActorErrorNode(n_actions)
-			softmax = nengo.Ensemble(n_actions*n_neurons, n_actions+1, radius=15)
+			softmax = nengo.Ensemble(n_actions*n_neurons, n_actions)
 			softmax_result = nengo.Node(size_in=n_actions)
-			# softmax = SoftmaxNode(n_actions)
-			# choice = ChoiceNode(n_actions, self.rng)
 			basal_ganglia = nengo.networks.BasalGanglia(n_actions, n_neurons)
 			thalamus = nengo.networks.Thalamus(n_actions, n_neurons)
+			# softmax = SoftmaxNode(n_actions)
+			# choice = ChoiceNode(n_actions, self.rng)
 
 			# inputs from environment
 			nengo.Connection(state_input, state, synapse=None, seed=seed)
@@ -1166,10 +1155,9 @@ class NengoActorCritic():
 			nengo.Connection(inhibit_learning[2], critic_gate.ea_ensembles[2].neurons, transform=w_inh, synapse=None)
 
 			# compute action probabilities and select an action
-			nengo.Connection(actor.output, softmax[:-1], synapse=None)  # actor values
-			nengo.Connection(explore[-1], softmax[-1], synapse=None)  # temperature
+			# nengo.Connection(actor.output, softmax, synapse=None)  # actor values
 			# nengo.Connection(softmax, choice, synapse=None)
-			# nengo.Connection(softmax, basal_ganglia.input, synapse=None)
+			nengo.Connection(actor.output, softmax, synapse=None)  # actor values
 			nengo.Connection(softmax, softmax_result, function=softmax_function, synapse=None)
 			nengo.Connection(softmax, basal_ganglia.input, function=softmax_function, synapse=None)
 			nengo.Connection(explore[:-1], basal_ganglia.input, synapse=None)  # epsilon random action
@@ -1181,10 +1169,11 @@ class NengoActorCritic():
 			network.p_reward = nengo.Probe(reward)
 			network.p_critic_error = nengo.Probe(critic_error)
 			network.p_actor_error = nengo.Probe(actor_error)
+			network.p_probs = nengo.Probe(softmax)
 			network.p_probs = nengo.Probe(softmax_result)
-			# network.p_choice = nengo.Probe(choice)
 			network.p_basal_ganglia = nengo.Probe(basal_ganglia.output)
 			network.p_thalamus = nengo.Probe(thalamus.output)
+			# network.p_choice = nengo.Probe(choice)
 			network.actor_pes = actor_pes
 			network.critic_pes = critic_pes
 			network.softmax = softmax
@@ -1201,13 +1190,12 @@ class NengoActorCritic():
 		# action = self.simulator.data[self.network.p_choice][-1]
 		bg = self.simulator.data[self.network.p_basal_ganglia][-1]
 		thalamus = self.simulator.data[self.network.p_thalamus][-1]
-		# action = np.argmax(thalamus)
 		action = np.argmax(thalamus) if np.std(thalamus)>0.1 else self.rng.randint(self.n_actions)
 		print('critic', critic)
 		print('critic error', critic_error)
 		print('actor', actor)
 		print('actor_error', actor_error)
-		# print('probs', probs)
+		print('probs', probs)
 		# print('bg', bg)
 		# print('action', action)
 		return action, probs
@@ -1224,7 +1212,7 @@ class NengoActorCritic():
 			self.network.critic_pes.learning_rate = 0
 			self.network.actor_pes.learning_rate = 0
 		# set temperature for softmax action selection
-		self.network.softmax.temperature = self.explore*np.power(self.explore_decay, self.episode)
+		# self.network.softmax.temperature = self.explore*np.power(self.explore_decay, self.episode)
 		# epsilon-exploration
 		self.explore_input.set(self.explore, self.explore_decay, self.episode)
 		# simulate the network with these inputs and collect the action outputs
