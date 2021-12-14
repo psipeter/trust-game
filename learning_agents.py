@@ -1047,25 +1047,6 @@ class NengoActorCritic():
 					error[past_action] = value_error*(1-action_probs[past_action])  # chosen action
 					return error
 
-			# class SoftmaxNode(nengo.Node):
-			# 	def __init__(self, n_actions, temperature=1):
-			# 		self.size_in = n_actions
-			# 		self.size_out = n_actions
-			# 		self.temperature = temperature
-			# 		super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
-			# 	def step(self, t, x):
-			# 		return scipy.special.softmax(x / self.temperature)
-
-			# class ChoiceNode(nengo.Node):
-			# 	def __init__(self, n_actions, rng, temperature=1):
-			# 		self.n_actions = n_actions
-			# 		self.size_in = n_actions
-			# 		self.size_out = 1
-			# 		self.rng = rng
-			# 		super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
-			# 	def step(self, t, x):
-			# 		return self.rng.choice(np.arange(self.n_actions), p=x)
-
 			def learning_control(t, x):
 				if t<=self.turn_time:
 					return [1,1,1]  # inhibit all learning on first turn
@@ -1073,12 +1054,6 @@ class NengoActorCritic():
 					return [0,0,0]  # all learning is active
 				if 5*self.turn_time < t:
 					return [1,0,0]  # inhibit the value of critic to ignore the max(next_value) term on turn 6
-
-			def critic_error_function(x):
-				value = x[0]
-				past_value = x[1]
-				past_reward = x[2]				
-				return past_reward + value - past_value
 
 			def softmax_function(x):
 				return scipy.special.softmax(x)
@@ -1092,18 +1067,16 @@ class NengoActorCritic():
 			state = nengo.Ensemble(n_neurons, n_inputs, intercepts=self.intercepts, encoders=self.encoders)
 			reward = nengo.Ensemble(n_neurons, 1)
 			critic = nengo.Ensemble(n_neurons, 1)
-			actor = nengo.networks.EnsembleArray(n_neurons, n_actions)
+			actor = nengo.Ensemble(n_actions*n_neurons, n_actions)
 			critic_gate = nengo.networks.EnsembleArray(n_neurons, 3)
 			critic_error = nengo.Ensemble(n_neurons, 1)
 			critic_pes = PESNode(n_neurons, d=self.d_critic, learning_rate=self.critic_rate)
 			actor_pes = PESNode(n_neurons, d=self.d_actor, learning_rate=self.actor_rate)
-			actor_error = ActorErrorNode(n_actions)
-			softmax = nengo.Ensemble(n_actions*n_neurons, n_actions)
-			softmax_result = nengo.Node(size_in=n_actions)
+			actor_error = nengo.Ensemble(n_actions*n_neurons, n_actions)
+			probs = nengo.Ensemble(n_actions*n_neurons, n_actions)
+			actor_error_node = ActorErrorNode(n_actions)
 			basal_ganglia = nengo.networks.BasalGanglia(n_actions, n_neurons)
 			thalamus = nengo.networks.Thalamus(n_actions, n_neurons)
-			# softmax = SoftmaxNode(n_actions)
-			# choice = ChoiceNode(n_actions, self.rng)
 
 			# inputs from environment
 			nengo.Connection(state_input, state, synapse=None, seed=seed)
@@ -1118,7 +1091,7 @@ class NengoActorCritic():
 			nengo.Connection(critic_error, critic_pes[2*n_neurons:], synapse=0)
 
 			# compute actor and critic values
-			nengo.Connection(actor_pes, actor.input, synapse=None)
+			nengo.Connection(actor_pes, actor, synapse=None)
 			nengo.Connection(critic_pes, critic, synapse=None)
 
 			# compute actor and critic errors
@@ -1128,9 +1101,10 @@ class NengoActorCritic():
 			nengo.Connection(critic_gate.output[0], critic_error, synapse=None)
 			nengo.Connection(critic_gate.output[1], critic_error, synapse=None)
 			nengo.Connection(critic_gate.output[2], critic_error, synapse=None)
-			nengo.Connection(softmax, actor_error[:n_actions], function=softmax_function, synapse=self.delay)
-			nengo.Connection(past_action, actor_error[-2], synapse=None)
-			nengo.Connection(critic_error, actor_error[-1], synapse=None)
+			nengo.Connection(probs, actor_error_node[:n_actions], synapse=self.delay)
+			nengo.Connection(past_action, actor_error_node[-2], synapse=None)
+			nengo.Connection(critic_error, actor_error_node[-1], synapse=None)
+			nengo.Connection(actor_error_node, actor_error, synapse=None)
 
 			# control learning on turns 0 and 6
 			nengo.Connection(inhibit_learning[0], critic_gate.ea_ensembles[0].neurons, transform=w_inh, synapse=None)
@@ -1138,28 +1112,22 @@ class NengoActorCritic():
 			nengo.Connection(inhibit_learning[2], critic_gate.ea_ensembles[2].neurons, transform=w_inh, synapse=None)
 
 			# compute action probabilities and select an action
-			# nengo.Connection(actor.output, softmax, synapse=None)  # actor values
-			# nengo.Connection(softmax, choice, synapse=None)
-			nengo.Connection(actor.output, softmax, synapse=None)  # actor values
-			nengo.Connection(softmax, softmax_result, function=softmax_function, synapse=None)
-			nengo.Connection(softmax, basal_ganglia.input, function=softmax_function, synapse=None)
+			nengo.Connection(actor, probs, function=softmax_function, synapse=None)
+			nengo.Connection(probs, basal_ganglia.input, synapse=None)
 			nengo.Connection(explore[:-1], basal_ganglia.input, synapse=None)  # epsilon random action
 			nengo.Connection(basal_ganglia.output, thalamus.input, synapse=None)
 
 
-			network.p_actor = nengo.Probe(actor.output)
+			network.p_actor = nengo.Probe(actor)
 			network.p_critic = nengo.Probe(critic)
 			network.p_reward = nengo.Probe(reward)
 			network.p_critic_error = nengo.Probe(critic_error)
 			network.p_actor_error = nengo.Probe(actor_error)
-			network.p_probs = nengo.Probe(softmax)
-			network.p_probs = nengo.Probe(softmax_result)
+			network.p_probs = nengo.Probe(probs)
 			network.p_basal_ganglia = nengo.Probe(basal_ganglia.output)
 			network.p_thalamus = nengo.Probe(thalamus.output)
-			# network.p_choice = nengo.Probe(choice)
 			network.actor_pes = actor_pes
 			network.critic_pes = critic_pes
-			network.softmax = softmax
 
 		return network
 
@@ -1194,8 +1162,6 @@ class NengoActorCritic():
 		if not game.train:
 			self.network.critic_pes.learning_rate = 0
 			self.network.actor_pes.learning_rate = 0
-		# set temperature for softmax action selection
-		# self.network.softmax.temperature = self.explore*np.power(self.explore_decay, self.episode)
 		# epsilon-exploration
 		self.explore_input.set(self.explore, self.explore_decay, self.episode)
 		# simulate the network with these inputs and collect the action outputs
