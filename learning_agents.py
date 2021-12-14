@@ -917,20 +917,6 @@ class NengoActorCritic():
 		def get(self):
 			return self.history[-1] if len(self.history)>0 else 0
 
-	class PastProbsInput():
-		def __init__(self, n_actions):
-			self.n_actions = n_actions
-			self.history = []
-		def set(self, probs):
-			self.history.append(probs)
-		def clear(self):
-			self.history.clear()
-		def get(self):
-			if len(self.history)==0:
-				return np.zeros((self.n_actions))
-			else:
-				return self.history[-1]
-
 	class ExploreInput():
 		def __init__(self, n_actions, rng, value_pos=1, value_neg=0):
 			self.n_actions = n_actions
@@ -953,7 +939,7 @@ class NengoActorCritic():
 			return self.vector
 
 	def __init__(self, player, seed=0, n_actions=5, ID="nengo-actor-critic", representation='turn-gen-opponent',
-			encoder_method='one-hot', actor_rate=3e-6, critic_rate=3e-6, n_neurons=100, dt=1e-3, turn_time=1e-1, q=6,
+			encoder_method='one-hot', actor_rate=3e-6, critic_rate=3e-6, n_neurons=200, dt=1e-3, turn_time=1e-1, q=6,
 			explore_method='boltzmann', explore=100, explore_decay=0.995, gamma=0.99):
 		self.player = player
 		self.ID = ID
@@ -977,7 +963,6 @@ class NengoActorCritic():
 		self.state_input = self.StateInput(self.n_inputs)
 		self.reward_input = self.PastRewardInput()
 		self.action_input = self.PastActionInput()
-		self.probs_input = self.PastProbsInput(self.n_actions)
 		self.explore_input = self.ExploreInput(self.n_actions, self.rng)
 		self.encoders, self.intercepts = self.build_encoders()
 		self.d_critic = np.zeros((self.n_neurons, 1))
@@ -996,7 +981,6 @@ class NengoActorCritic():
 	def new_game(self):
 		self.reward_input.clear()
 		self.action_input.clear()
-		self.probs_input.clear()
 		self.simulator.reset(self.seed)
 		self.episode += 1
 
@@ -1063,24 +1047,24 @@ class NengoActorCritic():
 					error[past_action] = value_error*(1-action_probs[past_action])  # chosen action
 					return error
 
-			class SoftmaxNode(nengo.Node):
-				def __init__(self, n_actions, temperature=1):
-					self.size_in = n_actions
-					self.size_out = n_actions
-					self.temperature = temperature
-					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
-				def step(self, t, x):
-					return scipy.special.softmax(x / self.temperature)
+			# class SoftmaxNode(nengo.Node):
+			# 	def __init__(self, n_actions, temperature=1):
+			# 		self.size_in = n_actions
+			# 		self.size_out = n_actions
+			# 		self.temperature = temperature
+			# 		super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+			# 	def step(self, t, x):
+			# 		return scipy.special.softmax(x / self.temperature)
 
-			class ChoiceNode(nengo.Node):
-				def __init__(self, n_actions, rng, temperature=1):
-					self.n_actions = n_actions
-					self.size_in = n_actions
-					self.size_out = 1
-					self.rng = rng
-					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
-				def step(self, t, x):
-					return self.rng.choice(np.arange(self.n_actions), p=x)
+			# class ChoiceNode(nengo.Node):
+			# 	def __init__(self, n_actions, rng, temperature=1):
+			# 		self.n_actions = n_actions
+			# 		self.size_in = n_actions
+			# 		self.size_out = 1
+			# 		self.rng = rng
+			# 		super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+			# 	def step(self, t, x):
+			# 		return self.rng.choice(np.arange(self.n_actions), p=x)
 
 			def learning_control(t, x):
 				if t<=self.turn_time:
@@ -1102,13 +1086,12 @@ class NengoActorCritic():
 			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=n_inputs)
 			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=1)
 			past_action = nengo.Node(lambda t, x: self.action_input.get(),size_in=2, size_out=1)
-			past_probs = nengo.Node(lambda t, x: self.probs_input.get(), size_in=2, size_out=n_actions)
 			explore = nengo.Node(lambda t, x: self.explore_input.get(), size_in=2, size_out=n_actions+1)
 			inhibit_learning = nengo.Node(learning_control, size_in=2, size_out=3)
 
 			state = nengo.Ensemble(n_neurons, n_inputs, intercepts=self.intercepts, encoders=self.encoders)
 			reward = nengo.Ensemble(n_neurons, 1)
-			critic = nengo.Ensemble(n_neurons, 1, radius=50)
+			critic = nengo.Ensemble(n_neurons, 1)
 			actor = nengo.networks.EnsembleArray(n_neurons, n_actions)
 			critic_gate = nengo.networks.EnsembleArray(n_neurons, 3)
 			critic_error = nengo.Ensemble(n_neurons, 1)
@@ -1145,7 +1128,7 @@ class NengoActorCritic():
 			nengo.Connection(critic_gate.output[0], critic_error, synapse=None)
 			nengo.Connection(critic_gate.output[1], critic_error, synapse=None)
 			nengo.Connection(critic_gate.output[2], critic_error, synapse=None)
-			nengo.Connection(past_probs, actor_error[:n_actions], synapse=None)
+			nengo.Connection(softmax, actor_error[:n_actions], function=softmax_function, synapse=self.delay)
 			nengo.Connection(past_action, actor_error[-2], synapse=None)
 			nengo.Connection(critic_error, actor_error[-1], synapse=None)
 
@@ -1222,7 +1205,6 @@ class NengoActorCritic():
 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
 		# save the chosen action for online learning in the next turn
 		self.action_input.set(action_idx)
-		self.probs_input.set(probs)
 		return give, keep
 
 	def learn(self, game):
