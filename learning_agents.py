@@ -1007,6 +1007,7 @@ class NengoActorCritic():
 		n_actions = self.n_actions
 		n_inputs = self.n_inputs
 		w_inh = -1e5*np.ones((self.n_neurons, 1))
+		# w_bg = -20*np.ones((self.n_neurons, 1))
 		network = nengo.Network(seed=seed)
 		network.config[nengo.Ensemble].seed = seed
 		network.config[nengo.Ensemble].neuron_type = nengo.LIFRate()
@@ -1044,7 +1045,32 @@ class NengoActorCritic():
 					past_action = int(x[-2])  # action that was previously selected by the learning agent (past state)
 					value_error = x[-1]  # value error associated with past activities, from CriticNode
 					error = -value_error * action_probs  # non-chosen actions
+					# error = np.zeros((self.n_actions))
 					error[past_action] = value_error*(1-action_probs[past_action])  # chosen action
+					return error
+
+			class ChosenErrorNode(nengo.Node):
+				def __init__(self, n_actions):
+					self.n_actions = n_actions
+					self.size_in = n_actions + 1
+					self.size_out = n_actions
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					action_probs = x[:self.n_actions]
+					value_error = x[-1]
+					error = value_error * action_probs  # 1-x comes from previous connection
+					return error
+
+			class UnchosenErrorNode(nengo.Node):
+				def __init__(self, n_actions):
+					self.n_actions = n_actions
+					self.size_in = n_actions + 1
+					self.size_out = n_actions
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					action_probs = x[:self.n_actions]
+					value_error = x[-1]
+					error = -value_error * action_probs
 					return error
 
 			def learning_control(t, x):
@@ -1074,7 +1100,16 @@ class NengoActorCritic():
 			actor_pes = PESNode(n_neurons, d=self.d_actor, learning_rate=self.actor_rate)
 			actor_error = nengo.Ensemble(n_actions*n_neurons, n_actions)
 			probs = nengo.Ensemble(n_actions*n_neurons, n_actions)
-			actor_error_node = ActorErrorNode(n_actions)
+			actor_error_chosen = nengo.Ensemble(n_actions*n_neurons, n_actions+1)
+			# probs_chosen = nengo.networks.EnsembleArray(n_neurons, n_actions)
+			# probs_unchosen = nengo.networks.EnsembleArray(n_neurons, n_actions)
+			# actor_error_chosen = ChosenErrorNode(n_actions)
+			# actor_error_unchosen = UnchosenErrorNode(n_actions)
+
+			# actor_error_chosen = nengo.Ensemble(n_actions*n_neurons, n_actions+1)
+			# actor_error_unchosen = nengo.Ensemble(n_actions*n_neurons, n_actions+1)
+			# actor_error_node = ActorErrorNode(n_actions)
+			product = nengo.networks.Product(n_neurons, n_actions)
 			basal_ganglia = nengo.networks.BasalGanglia(n_actions, n_neurons)
 			thalamus = nengo.networks.Thalamus(n_actions, n_neurons)
 
@@ -1101,10 +1136,10 @@ class NengoActorCritic():
 			nengo.Connection(critic_gate.output[0], critic_error, synapse=None)
 			nengo.Connection(critic_gate.output[1], critic_error, synapse=None)
 			nengo.Connection(critic_gate.output[2], critic_error, synapse=None)
-			nengo.Connection(probs, actor_error_node[:n_actions], synapse=self.delay)
-			nengo.Connection(past_action, actor_error_node[-2], synapse=None)
-			nengo.Connection(critic_error, actor_error_node[-1], synapse=None)
-			nengo.Connection(actor_error_node, actor_error, synapse=None)
+			# nengo.Connection(probs, actor_error_node[:n_actions], synapse=self.delay)
+			# nengo.Connection(past_action, actor_error_node[-2], synapse=None)
+			# nengo.Connection(critic_error, actor_error_node[-1], synapse=None)
+			# nengo.Connection(actor_error_node, actor_error, synapse=None)
 
 			# control learning on turns 0 and 6
 			nengo.Connection(inhibit_learning[0], critic_gate.ea_ensembles[0].neurons, transform=w_inh, synapse=None)
@@ -1117,6 +1152,38 @@ class NengoActorCritic():
 			nengo.Connection(explore[:-1], basal_ganglia.input, synapse=None)  # epsilon random action
 			nengo.Connection(basal_ganglia.output, thalamus.input, synapse=None)
 
+			# create one-hot (and anti-one-hot) vectors for action probabilities, used for actor error
+			nengo.Connection(probs, product.input_a, function=lambda x: 1-x, synapse=self.delay)
+			nengo.Connection(thalamus.output, product.input_b, synapse=self.delay)
+			nengo.Connection(product.output, actor_error_chosen[:n_actions], synapse=None)
+			nengo.Connection(critic_error, actor_error_chosen[-1], synapse=None)
+			nengo.Connection(actor_error_chosen, actor_error, function=lambda x: x[-1]*x[:-1], synapse=None)
+
+
+			# nengo.Connection(probs, probs_chosen.input, function=lambda x: 1-x, synapse=None)
+			# nengo.Connection(probs, probs_unchosen.input, synapse=None)
+			# inhibit each sub-ensemble that did not win in the WTA
+			# for a in range(n_actions):
+			# 	nengo.Connection(basal_ganglia.output[a], probs_chosen.ea_ensembles[a].neurons, transform=w_bg, synapse=None)
+			# inhibit the sub-ensemble that did win in the WTA
+			# for a in range(n_actions):
+			# 	nengo.Connection(thalamus.output[a], probs_unchosen.ea_ensembles[a].neurons, transform=w_inh, synapse=None)
+			# connect both of these into actor_error_node's action probabilities as a sanity check
+			# nengo.Connection(probs_chosen.output, actor_error_chosen[:n_actions], synapse=None)
+			# nengo.Connection(probs_unchosen.output, actor_error_unchosen[:n_actions], synapse=None)
+			# nengo.Connection(critic_error, actor_error_chosen[-1], synapse=None)
+			# nengo.Connection(critic_error, actor_error_unchosen[-1], synapse=None)
+			# nengo.Connection(actor_error_chosen, actor_error, synapse=None)
+			# nengo.Connection(actor_error_unchosen, actor_error, synapse=None)
+
+			# compute error for the chosen and unchosen action values
+			# nengo.Connection(probs_chosen.output, actor_error_chosen[:n_actions], synapse=None)
+			# nengo.Connection(critic_error, actor_error_chosen[-1], synapse=None)
+			# nengo.Connection(actor_error_chosen, actor_error, function=lambda x: x[-1]*(1-x[:-1]), synapse=None)
+			# nengo.Connection(probs_unchosen.output, actor_error_unchosen[:n_actions], synapse=None)
+			# nengo.Connection(critic_error, actor_error_unchosen[-1], synapse=None)
+			# nengo.Connection(actor_error_unchosen, actor_error, function=lambda x: -x[-1]*x[:-1], synapse=None)
+
 
 			network.p_actor = nengo.Probe(actor)
 			network.p_critic = nengo.Probe(critic)
@@ -1126,6 +1193,9 @@ class NengoActorCritic():
 			network.p_probs = nengo.Probe(probs)
 			network.p_basal_ganglia = nengo.Probe(basal_ganglia.output)
 			network.p_thalamus = nengo.Probe(thalamus.output)
+			network.p_actor_error_chosen = nengo.Probe(actor_error_chosen)
+			# network.p_actor_error_unchosen = nengo.Probe(actor_error_unchosen)
+			network.p_product = nengo.Probe(product.output)
 			network.actor_pes = actor_pes
 			network.critic_pes = critic_pes
 
@@ -1138,16 +1208,24 @@ class NengoActorCritic():
 		critic = self.simulator.data[self.network.p_critic][-1]
 		critic_error = self.simulator.data[self.network.p_critic_error][-1]
 		probs = self.simulator.data[self.network.p_probs][-1]
+		actor_error_chosen = self.simulator.data[self.network.p_actor_error_chosen][-1]
+		# actor_error_unchosen = self.simulator.data[self.network.p_actor_error_unchosen][-1]
 		# action = self.simulator.data[self.network.p_choice][-1]
 		bg = self.simulator.data[self.network.p_basal_ganglia][-1]
 		thalamus = self.simulator.data[self.network.p_thalamus][-1]
+		product = self.simulator.data[self.network.p_product][-1]
 		action = np.argmax(thalamus) if np.std(thalamus)>0.1 else self.rng.randint(self.n_actions)
-		print('critic', critic)
-		print('critic error', critic_error)
-		print('actor', actor)
-		print('actor_error', actor_error)
-		print('probs', probs)
-		# print('bg', bg)
+		# print('critic \t', critic)
+		# print('actor \t', actor)
+		print('probs \t', probs)
+		# print('thal \t', thalamus)
+		# print('product \t', product)
+		# print('bg \t', bg)
+		# print('critic error', critic_error)
+		# print('chosen \t', actor_error_chosen)
+		# print('uncho \t', actor_error_unchosen)
+		# print('critic error', critic_error)
+		# print('actor_error', actor_error)
 		# print('action', action)
 		return action, probs
 
