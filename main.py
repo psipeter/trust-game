@@ -2,6 +2,9 @@ from fixed_agents import *
 from learning_agents import *
 from utils import *
 from experiments import *
+from human_analysis import *
+
+# plot_user_data()
 
 # tournament_type = "one_game"
 # tournament_type = "many_games"
@@ -33,13 +36,19 @@ from experiments import *
 
 
 
-# test_adaptivity(learner_type="tabular-q-learning", n_learners=3, n_train=100, n_test=10, seed=0)
-# test_adaptivity(learner_type="tabular-actor-critic", n_learners=3, n_train=2000, n_test=10, seed=0)
-
+# test_adaptivity(learner_type="tabular-q-learning", n_learners=2, n_train=1000, n_test=10, seed=0)
+# test_adaptivity(learner_type="tabular-actor-critic", n_learners=2, n_train=2000, n_test=10, seed=0)
 # test_adaptivity(learner_type="deep-q-learning", n_learners=1, n_train=3000, n_test=10, seed=0)
 # test_adaptivity(learner_type="deep-actor-critic", n_learners=3, n_train=1500, n_test=10, seed=0)
-
-# test_adaptivity(learner_type="instance-based", n_learners=3, n_train=100, n_test=10, seed=0)
-
+# test_adaptivity(learner_type="instance-based", n_learners=1, n_train=4000, n_test=10, seed=0)  # deday.998
 # test_adaptivity(learner_type="nengo-q-learning", n_learners=1, n_train=100, n_test=10, seed=0)
-test_adaptivity(learner_type="nengo-actor-critic", n_learners=1, n_train=1000, n_test=10, seed=0)
+# test_adaptivity(learner_type="nengo-actor-critic", n_learners=1, n_train=1000, n_test=10, seed=0)
+
+
+test_t4tv(learner_type="tabular-q-learning", n_learners=50, n_train=1000, n_test=0, seed=0)
+# test_t4tv(learner_type="tabular-actor-critic", n_learners=2, n_train=1000, n_test=10, seed=0)
+# test_t4tv(learner_type="deep-q-learning", n_learners=2, n_train=1000, n_test=10, seed=0)
+# test_t4tv(learner_type="deep-actor-critic", n_learners=2, n_train=1000, n_test=10, seed=0)
+# test_t4tv(learner_type="instance-based", n_learners=2, n_train=1000, n_test=10, seed=0)
+# test_t4tv(learner_type="nengo-q-learning", n_learners=1, n_train=100, n_test=10, seed=0)
+# test_t4tv(learner_type="nengo-actor-critic", n_learners=5, n_train=300, n_test=1, seed=0)

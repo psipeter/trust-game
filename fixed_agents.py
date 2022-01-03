@@ -16,7 +16,7 @@ class t4t():
 		assert F >= 0, "forgiveness rate must be positive or zero"
 		assert P >= 0, "punishment rate must be positive or zero"
 
-	def new_game(self):
+	def new_game(self, game):
 		self.state = self.O if self.player=="investor" else self.O/2
 		self.M = 1 if self.player=="investor" else 0.5
 
@@ -74,7 +74,7 @@ class adaptive():
 		self.thr_trustee = thr_trustee
 		self.thr_investor = thr_investor
 
-	def new_game(self):
+	def new_game(self, game):
 		self.state = 0
 
 	def move(self, game):
