@@ -47,7 +47,6 @@ def play_game(game, investor, trustee):
 
 def game_loop(investor, trustee, train, g, dfs):
 	columns = ('ID', 'opponent_ID', 'player', 'train', 'game', 'turn', 'generosity', 'coins')
-	print(f"game {g}")
 	game = Game(train=train)
 	play_game(game, investor, trustee)
 	for t in range(game.turns):
@@ -113,25 +112,25 @@ def game_loop(investor, trustee, train, g, dfs):
 # 		plot_learning(data, learner_plays=learner_plays, name='all')
 # 		plot_policy(data, learner_plays=learner_plays, name='all')
 
-def train_and_test(investors, trustees, learner_plays, n_train, n_test, learner_name, opponent_name):
+def train_and_test(investors, trustees, learner_plays, n_train, learner_name, opponent_name, plot=False):
 	learners = investors if learner_plays=='investor' else trustees
 	n_learners = len(learners)
-	# data = pd.read_pickle(f'agent_data/{learner_name}_as_{learner_plays}_versus_{opponent_name}_N={n_learners}.pkl')
-	# plot_learning_and_policy_agent_friendliness(data, learners, learner_plays, learner_name, opponent_name)
 	dfs = []
 	for learner in learners:
+		print(f"{learner_name} {learner.ID} vs {opponent_name}")
 		learner.reinitialize(player=learner_plays, ID=learner.ID, seed=learner.seed)
 		for g in range(n_train):
+			# print(f"game {g}")
 			if learner_plays=='investor':
 				dfs = game_loop(learner, trustees[g], train=True, g=g, dfs=dfs)
 			elif learner_plays=='trustee':
 				dfs = game_loop(investors[g], learner, train=True, g=g, dfs=dfs)
 	data = pd.concat([df for df in dfs], ignore_index=True)
-	# plot_learning(data, learner_plays=learner_plays, learner_name=learner_name, opponent_name=opponent_name)
-	# plot_policy(data, learner_plays=learner_plays, learner_name=learner_name, opponent_name=opponent_name)
-	# plot_learning_and_policy(data, learner_plays, learner_name, opponent_name)
-	plot_learning_and_policy_agent_friendliness(data, learners, learner_plays, learner_name, opponent_name)
-	data.to_pickle(f'agent_data/{learner_name}_as_{learner_plays}_versus_{opponent_name}_N={n_learners}.pkl')
+	data = data.assign(opponent=opponent_name)
+	if plot:
+		plot_learning_and_policy(data, learner_plays, learner_name, opponent_name)
+		data.to_pickle(f'agent_data/{learner_name}_as_{learner_plays}_vs_{opponent_name}_N={n_learners}.pkl')
+	return data
 	# if learner_plays=='investor':
 	# 	metrics_gen, metrics_score = process_data(data, investors)
 	# if learner_plays=='trustee':
@@ -143,8 +142,6 @@ def make_learners(learner_type, seed, n_learners):
 		learners = [TabularQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="tabular-actor-critic":
 		learners = [TabularActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
-	if learner_type=="tabular-model-based":
-		learners = [TabularModelBased('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="deep-q-learning":
 		learners = [DeepQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="deep-actor-critic":
@@ -157,7 +154,7 @@ def make_learners(learner_type, seed, n_learners):
 		learners = [NengoActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	return learners
 
-def test_adaptivity(learner_type, n_learners=10, n_train=1000, n_test=100, seed=0):
+def test_adaptivity(learner_type, n_learners=10, n_train=1000,  seed=0):
 	learners = make_learners(learner_type, seed, n_learners)
 	learner_name = learners[0].__class__.__name__
 	cooperate_trustee = [adaptive('trustee', 'cooperate') for _ in range(n_train)]
@@ -168,23 +165,29 @@ def test_adaptivity(learner_type, n_learners=10, n_train=1000, n_test=100, seed=
 	gift_investor = [adaptive('investor', 'gift') for _ in range(n_train)]
 	attrition_trustee = [adaptive('trustee', 'attrition') for _ in range(n_train)]
 	attrition_investor = [adaptive('investor', 'attrition') for _ in range(n_train)]
-	train_and_test(learners, cooperate_trustee, 'investor', n_train, n_test, learner_name, "LearnToCooperate")
-	train_and_test(cooperate_investor, learners, 'trustee', n_train, n_test, learner_name, "LearnToCooperate")
-	train_and_test(learners, defect_trustee, 'investor', n_train, n_test, learner_name, "LearnToDefect")
-	train_and_test(defect_investor, learners, 'trustee', n_train, n_test, learner_name, "LearnToDefect")
-	train_and_test(learners, gift_trustee, 'investor', n_train, n_test, learner_name, "LearnToGift")
-	train_and_test(gift_investor, learners, 'trustee', n_train, n_test, learner_name, "LearnToGift")
-	train_and_test(learners, attrition_trustee, 'investor', n_train, n_test, learner_name, "LearnToAttrition")
-	train_and_test(attrition_investor, learners, 'trustee', n_train, n_test, learner_name, "LearnToAttrition")
+	train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate", True)
+	train_and_test(cooperate_investor, learners, 'trustee', n_train, learner_name, "LearnToCooperate", True)
+	train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect", True)
+	train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect", True)
+	train_and_test(learners, gift_trustee, 'investor', n_train, learner_name, "LearnToGift", True)
+	train_and_test(gift_investor, learners, 'trustee', n_train, learner_name, "LearnToGift", True)
+	train_and_test(learners, attrition_trustee, 'investor', n_train, learner_name, "LearnToAttrition", True)
+	train_and_test(attrition_investor, learners, 'trustee', n_train, learner_name, "LearnToAttrition", True)
 
-def test_t4tv(learner_type, n_learners=100, n_train=1000, n_test=100, seed=0):
+def test_t4tv(learner_type, n_learners=100, n_train=1000, seed=0, load=False):
 	learners = make_learners(learner_type, seed, n_learners)
 	learner_name = learners[0].__class__.__name__
-	greedy_trustee = [t4tv("trustee", seed=n, minO=0.1, maxO=0.3, minX=0.5, maxX=0.5, minF=0.0, maxF=0.1, minP=0.2, maxP=0.2) for n in range(n_train)]
-	greedy_investor = [t4tv("investor", seed=n, minO=0.8, maxO=1.0, minX=0.5, maxX=0.5, minF=1.0, maxF=1.0, minP=0.1, maxP=0.3) for n in range(n_train)]
-	generous_trustee = [t4tv("trustee", seed=n, minO=0.3, maxO=0.5, minX=0.5, maxX=0.5, minF=0.4, maxF=0.6, minP=1.0, maxP=1.0) for n in range(n_train)]
-	generous_investor = [t4tv("investor", seed=n, minO=0.6, maxO=0.8, minX=0.5, maxX=0.5, minF=0.8, maxF=1.0, minP=1.0, maxP=1.0) for n in range(n_train)]
-	train_and_test(learners, greedy_trustee, 'investor', n_train, n_test, learner_name, "GreedyT4T")
-	train_and_test(greedy_investor, learners, 'trustee', n_train, n_test, learner_name, "GreedyT4T")
-	train_and_test(learners, generous_trustee, 'investor', n_train, n_test, learner_name, "GenerousT4T")
-	train_and_test(generous_investor, learners, 'trustee', n_train, n_test, learner_name, "GenerousT4T")
+	if load:
+		df = pd.read_pickle(f'agent_data/{learner_name}_N={n_learners}_friendliness.pkl')
+	else:
+		greedy_trustee = [t4tv("trustee", seed=n, minO=0.1, maxO=0.3, minX=0.5, maxX=0.5, minF=0.0, maxF=0.1, minP=0.2, maxP=0.2) for n in range(n_train)]
+		greedy_investor = [t4tv("investor", seed=n, minO=0.8, maxO=1.0, minX=0.5, maxX=0.5, minF=1.0, maxF=1.0, minP=0.1, maxP=0.3) for n in range(n_train)]
+		generous_trustee = [t4tv("trustee", seed=n, minO=0.3, maxO=0.5, minX=0.5, maxX=0.5, minF=0.4, maxF=0.6, minP=1.0, maxP=1.0) for n in range(n_train)]
+		generous_investor = [t4tv("investor", seed=n, minO=0.6, maxO=0.8, minX=0.5, maxX=0.5, minF=0.8, maxF=1.0, minP=1.0, maxP=1.0) for n in range(n_train)]
+		data1 = train_and_test(learners, greedy_trustee, 'investor', n_train, learner_name, "GreedyT4T")
+		data2 = train_and_test(greedy_investor, learners, 'trustee', n_train, learner_name, "GreedyT4T")
+		data3 = train_and_test(learners, generous_trustee, 'investor', n_train, learner_name, "GenerousT4T")
+		data4 = train_and_test(generous_investor, learners, 'trustee', n_train, learner_name, "GenerousT4T")
+		df = pd.concat([data1, data2, data3, data4], ignore_index=True)
+		df.to_pickle(f'agent_data/{learner_name}_N={n_learners}_friendliness.pkl')
+	plot_learning_and_policy_agent_friendliness(df, learners, learner_type)

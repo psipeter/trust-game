@@ -211,15 +211,23 @@ class DeepQLearning():
 			x = self.output(x)
 			return x
 
-	def __init__(self, player, seed=0, n_actions=5, n_neurons=200, ID="deep-q-learning", representation='turn-gen-opponent',
-			explore_method='boltzmann', explore=100, explore_decay=0.995,
+	def __init__(self, player, seed=0, n_actions=11, n_neurons=200, ID="deep-q-learning", representation='turn-coin',
+			explore_method='boltzmann', explore=100, explore_decay=0.99, friendliness=0, randomize=True,
 			learning_method='TD0', critic_rate=1e-2, gamma=0.99, lambd=0.8):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
-		self.gamma = gamma
-		self.lambd = lambd
+		self.randomize = randomize
+		if self.randomize:
+			self.gamma = self.rng.uniform(0.2, 1)
+			self.lambd = self.rng.uniform(0, 1)
+			# self.friendliness = 0 if self.rng.uniform(0, 1)<0.5 else self.rng.uniform(0.2, 0.3)
+			self.friendliness = self.rng.uniform(0, 0.5)
+		else:
+			self.gamma = gamma
+			self.lambd = lambd
+			self.friendliness = friendliness
 		self.representation = representation
 		self.critic_rate = critic_rate
 		self.explore = explore
@@ -237,8 +245,8 @@ class DeepQLearning():
 		self.state = None
 		self.episode = 0
 
-	def reinitialize(self, player):
-		self.__init__(player)
+	def reinitialize(self, player, ID, seed):
+		self.__init__(player=player, ID=ID, seed=seed)
 
 	def new_game(self, game):
 		self.critic_value_history.clear()
@@ -274,6 +282,7 @@ class DeepQLearning():
 
 	def learn(self, game):
 		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
+		rewards_other = game.trustee_reward if self.player=='investor' else game.investor_reward
 		if self.learning_method=='MC':
 			returns = []
 			return_sum = 0
@@ -281,7 +290,7 @@ class DeepQLearning():
 				return_sum += rewards[t]
 				returns.insert(0, return_sum)
 		else:
-			returns = rewards
+			returns = (1.0-self.friendliness)*np.array(rewards) + self.friendliness*np.array(rewards_other)
 		critic_losses = []
 		for t in np.arange(game.turns):
 			action = self.action_history[t]
@@ -425,7 +434,7 @@ class DeepActorCritic():
 class InstanceBased():
 
 	class Chunk():
-		def __init__(self, state, action, reward, value, episode, decay=0.5, epsilon=0.3):
+		def __init__(self, state, action, reward, value, episode, decay=0.5, epsilon=0):
 			self.state = state
 			self.action = action
 			self.reward = reward
@@ -440,11 +449,11 @@ class InstanceBased():
 				activation += (episode - t)**(-self.decay)
 			return np.log(activation) + rng.logistic(loc=0.0, scale=self.epsilon)
 
-	def __init__(self, player, seed=0, n_actions=11, ID="instance-based", representation='turn-gen-opponent',
+	def __init__(self, player, seed=0, n_actions=5, ID="instance-based", representation='turn-coin',
 			populate_method='state-similarity', value_method='next-value',
-			thr_activation=0, thr_action=0.8, thr_state=0.8,
+			thr_activation=0, thr_action=0.8, thr_state=0.9, friendliness=0, randomize=True,
 			learning_method='TD0', gamma=0.99,
-			explore_method='boltzmann', explore=100, explore_decay=0.995):
+			explore_method='boltzmann', explore=100, explore_decay=0.99):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -453,7 +462,13 @@ class InstanceBased():
 		self.n_inputs = get_n_inputs(representation, player, n_actions)
 		self.n_actions = n_actions
 		self.learning_method = learning_method
-		self.gamma = gamma
+		self.randomize = randomize
+		if self.randomize:
+			self.gamma = self.rng.uniform(0, 1)
+			self.friendliness = self.rng.uniform(0, 0.5)
+		else:
+			self.gamma = gamma
+			self.friendliness = friendliness
 		self.thr_activation = thr_activation  # activation threshold for retrieval (loading chunks from declarative into working memory)
 		self.thr_action = thr_action  # action similarity threshold for retrieval (loading chunks from declarative into working memory)
 		self.thr_state = thr_state  # state similarity threshold for retrieval (loading chunks from declarative into working memory)
@@ -468,8 +483,8 @@ class InstanceBased():
 		self.state = None
 		self.episode = 0  # for tracking activation within / across games
 
-	def reinitialize(self, player):
-		self.__init__(player)
+	def reinitialize(self, player, ID, seed):
+		self.__init__(player=player, ID=ID, seed=seed)
 
 	def new_game(self, game):
 		self.working_memory.clear()
@@ -504,33 +519,22 @@ class InstanceBased():
 			# identify the similarity between the chunk's state and the current game state
 			if self.representation=='turn':
 				chunk_turn = chunk.state
-				if current_turn==chunk_turn: similarity_state = 1
-				else: similarity_state = 0
-			elif self.representation=='turn-gen-opponent':
-				chunk_turn = int(chunk.state / (self.n_actions+1))
-				if current_turn==chunk_turn:
-					gens_current = game.trustee_gen if self.player=='investor' else game.investor_gen
-					index_chunk = chunk.state % (self.n_actions+1)
-					if self.player=='investor':
-						# get generosity of opponent for the current game state
-						if current_turn==0: gen_current = 0
-						elif np.isnan(gens_current[-1]): gen_current = -1
-						else: gen_current = gens_current[-1]
-						# get generosity of opponent for the remembered chunk's game state					
-						if index_chunk==0: gen_chunk = 0
-						elif index_chunk == self.n_actions: gen_chunk = -1
-						else: gen_chunk = index_chunk / (self.n_actions-1)
-					else:
-						gen_current = gens_current[-1]
-						gen_chunk = index_chunk / (self.n_actions-1)
-					if gen_current==-1 and gen_chunk==-1:
-						similarity_state = 1
-					elif gen_current==-1 or gen_chunk==-1:
-						similarity_state = 0
-					else:
-						similarity_state = 1 - np.abs(gen_current - gen_chunk)
+				similarity_state = 1 if current_turn==chunk_turn else 0
+			elif self.representation=='turn-coin':
+				if self.player=='investor':
+					chunk_turn = chunk.state
+					similarity_state = 1 if current_turn==chunk_turn else 0
 				else:
-					similarity_state = 0
+					chunk_turn = int(chunk.state / (game.coins*game.match+1))
+					if current_turn==chunk_turn:
+						chunk_coins = chunk.state - chunk_turn*(game.coins*game.match+1)
+						current_coins = game.investor_give[-1]*game.match
+						diff_coin = np.abs(chunk_coins - current_coins)
+						similarity_state = 1.0 - diff_coin / (game.coins*game.match+1)
+						# print('chunk', chunk_coins, 'current', current_coins, 'similarity', similarity_state)
+					else:
+						similarity_state = 0
+						# print('chunk', chunk_coins, 'current', current_coins, 'similarity', similarity_state)
 			# load the chunk into working memory if various checks on activation, action similarity, and/or state similarity are passed
 			pass_activation = activation > self.thr_activation
 			pass_action = similarity_action > self.thr_action
@@ -584,6 +588,7 @@ class InstanceBased():
 		# update value of new chunks according to some scheme
 		actions = game.investor_gen if self.player=='investor' else game.trustee_gen
 		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
+		rewards_other = game.trustee_reward if self.player=='investor' else game.investor_reward
 		if self.learning_method=='MC':
 			returns = []
 			return_sum = 0
@@ -591,7 +596,7 @@ class InstanceBased():
 				return_sum += rewards[t]
 				returns.insert(0, return_sum)
 		else:
-			returns = rewards
+			returns = (1.0-self.friendliness)*np.array(rewards) + self.friendliness*np.array(rewards_other)
 		for t in np.arange(game.turns):
 			chunk = self.learning_memory[t]
 			next_chunk = self.learning_memory[t+1] if t<(game.turns-1) else None
@@ -610,29 +615,19 @@ class InstanceBased():
 					if self.representation=='turn':
 						chunk_turn = next_chunk.state
 						similarity_state = 1 if next_turn==chunk_turn else 0
-					elif self.representation=='turn-gen-opponent':
-						chunk_turn = int(next_chunk.state / (self.n_actions+1))
-						if next_turn==chunk_turn:
-							gens_current = game.trustee_gen if self.player=='investor' else game.investor_gen
-							index_chunk = next_chunk.state % (self.n_actions+1)
-							if self.player=='investor':
-								# get generosity of opponent for the next turn's game state
-								if np.isnan(gens_current[next_turn]): gen_current = -1
-								else: gen_current = gens_current[next_turn]
-								# get generosity of opponent for the remembered chunk's game state					
-								if index_chunk == self.n_actions: gen_chunk = -1
-								else: gen_chunk = index_chunk / (self.n_actions-1)
-							else:
-								gen_current = gens_current[next_turn]
-								gen_chunk = index_chunk / (self.n_actions-1)
-							if gen_current==-1 and gen_chunk==-1:
-								similarity_state = 1
-							elif gen_current==-1 or gen_chunk==-1:
-								similarity_state = 0
-							else:
-								similarity_state = 1 - np.abs(gen_current - gen_chunk)
+					elif self.representation=='turn-coin':
+						if self.player=='investor':
+							chunk_turn = chunk.state
+							similarity_state = 1 if t==chunk_turn else 0
 						else:
-							similarity_state = 0
+							chunk_turn = int(chunk.state / (game.coins*game.match+1))
+							if t==chunk_turn:
+								chunk_coins = chunk.state - chunk_turn*(game.coins*game.match+1)
+								current_coins = game.investor_give[-1]*game.match
+								diff_coin = np.abs(chunk_coins - current_coins)
+								similarity_state = 1.0 - diff_coin / (game.coins*game.match+1)
+							else:
+								similarity_state = 0
 					pass_activation = activation > self.thr_activation
 					pass_state = similarity_state > self.thr_state
 					if pass_activation and pass_state:
