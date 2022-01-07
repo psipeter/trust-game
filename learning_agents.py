@@ -211,34 +211,37 @@ class DeepQLearning():
 			x = self.output(x)
 			return x
 
-	def __init__(self, player, seed=0, n_actions=31, n_neurons=500, ID="deep-q-learning", representation='turn-coin',
-			explore_method='boltzmann', explore=10, explore_decay=0.98, friendliness=0, randomize=True,
-			learning_method='TD0', critic_rate=1e-1, gamma=0.99, lambd=0.8):
+	def __init__(self, player, seed=0, n_neurons=200, ID="deep-q-learning", representation='turn-coin',
+			explore_method='epsilon', explore=1, explore_decay=3e-2, friendliness=0, randomize=True,
+			learning_method='TD0', critic_rate=1e-1, gamma=0.9, lambd=0.8):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.3, 1.0)
-			# self.friendliness = self.rng.uniform(0, 0.5)
+			self.gamma = self.rng.uniform(0.9, 1)
+			self.explore_decay = self.rng.uniform(1e-1, 5e-1)
+			# self.friendliness = self.rng.uniform(0, 0.3)
+			self.critic_rate = self.rng.uniform(1e-1, 5e-1)
 			if self.rng.uniform(0,1)<0.5:
 				self.friendliness = 0
 			else:
+				# self.friendliness = self.rng.uniform(0, 0.3)
 				if self.player=='investor':
-					self.friendliness = self.rng.uniform(0.1, 0.3)
+					self.friendliness = self.rng.uniform(0.1, 0.2)
 				else:
 					self.friendliness = self.rng.uniform(0.2, 0.4)
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
+			self.explore_decay = explore_decay
+			self.critic_rate = critic_rate
 		self.representation = representation
-		self.critic_rate = critic_rate
 		self.explore = explore
-		self.explore_decay = explore_decay
 		self.explore_method = explore_method
-		self.n_inputs = get_n_inputs(representation, player, n_actions)
-		self.n_actions = n_actions
+		self.n_actions = 11 if self.player=='investor' else 31
+		self.n_inputs = get_n_inputs(representation, player, self.n_actions)
 		self.n_neurons = n_neurons
 		self.learning_method = learning_method
 		torch.manual_seed(seed)
@@ -255,7 +258,6 @@ class DeepQLearning():
 	def new_game(self, game):
 		self.critic_value_history.clear()
 		self.action_history.clear()
-		self.episode += 1
 
 	def move(self, game):
 		game_state = get_state(self.player, self.representation, game=game, return_type='tensor',
@@ -264,7 +266,8 @@ class DeepQLearning():
 		critic_values = self.critic(game_state)
 		# Choose and action based on thees values and some exploration strategy
 		if self.explore_method=='epsilon':
-			epsilon = self.explore*np.power(self.explore_decay, self.episode)
+			epsilon = self.explore*np.exp(-self.explore_decay*self.episode)
+			# epsilon = self.explore*np.power(self.explore_decay, self.episode)
 			if self.rng.uniform(0, 1) < epsilon:
 				action = torch.LongTensor([self.rng.randint(self.n_actions)])
 			else:
@@ -310,6 +313,7 @@ class DeepQLearning():
 		self.critic_optimizer.zero_grad()
 		critic_loss.backward()
 		self.critic_optimizer.step()
+		self.episode += 1
 
 
 
