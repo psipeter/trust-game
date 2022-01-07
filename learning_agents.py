@@ -211,22 +211,26 @@ class DeepQLearning():
 			x = self.output(x)
 			return x
 
-	def __init__(self, player, seed=0, n_actions=11, n_neurons=200, ID="deep-q-learning", representation='turn-coin',
-			explore_method='boltzmann', explore=100, explore_decay=0.99, friendliness=0, randomize=True,
-			learning_method='TD0', critic_rate=1e-2, gamma=0.99, lambd=0.8):
+	def __init__(self, player, seed=0, n_actions=31, n_neurons=500, ID="deep-q-learning", representation='turn-coin',
+			explore_method='boltzmann', explore=10, explore_decay=0.98, friendliness=0, randomize=True,
+			learning_method='TD0', critic_rate=1e-1, gamma=0.99, lambd=0.8):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.2, 1)
-			self.lambd = self.rng.uniform(0, 1)
-			# self.friendliness = 0 if self.rng.uniform(0, 1)<0.5 else self.rng.uniform(0.2, 0.3)
-			self.friendliness = self.rng.uniform(0, 0.5)
+			self.gamma = self.rng.uniform(0.3, 1.0)
+			# self.friendliness = self.rng.uniform(0, 0.5)
+			if self.rng.uniform(0,1)<0.5:
+				self.friendliness = 0
+			else:
+				if self.player=='investor':
+					self.friendliness = self.rng.uniform(0.1, 0.3)
+				else:
+					self.friendliness = self.rng.uniform(0.2, 0.4)
 		else:
 			self.gamma = gamma
-			self.lambd = lambd
 			self.friendliness = friendliness
 		self.representation = representation
 		self.critic_rate = critic_rate
