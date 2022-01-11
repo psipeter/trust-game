@@ -211,19 +211,19 @@ class DeepQLearning():
 			x = self.output(x)
 			return x
 
-	def __init__(self, player, seed=0, n_neurons=200, ID="deep-q-learning", representation='turn-coin',
-			explore_method='epsilon', explore=1, explore_decay=3e-2, friendliness=0, randomize=True,
-			learning_method='TD0', critic_rate=1e-1, gamma=0.9, lambd=0.8):
+	def __init__(self, player, seed=0, n_neurons=100, ID="deep-q-learning", representation='turn-coin',
+			explore_method='boltzmann', explore=2, explore_decay=1e-2, friendliness=0, randomize=True,
+			learning_method='TD0', critic_rate=3e-1, gamma=0.9, lambd=0.8):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.9, 1)
-			self.explore_decay = self.rng.uniform(1e-1, 5e-1)
+			self.gamma = self.rng.uniform(0, 1)
+			self.explore_decay = 0  # self.rng.uniform(2e-1, 4e-1)
 			# self.friendliness = self.rng.uniform(0, 0.3)
-			self.critic_rate = self.rng.uniform(1e-1, 5e-1)
+			self.critic_rate = self.rng.uniform(1e-1, 3e-1)
 			if self.rng.uniform(0,1)<0.5:
 				self.friendliness = 0
 			else:
@@ -231,7 +231,7 @@ class DeepQLearning():
 				if self.player=='investor':
 					self.friendliness = self.rng.uniform(0.1, 0.2)
 				else:
-					self.friendliness = self.rng.uniform(0.2, 0.4)
+					self.friendliness = self.rng.uniform(0.1, 0.2)
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
@@ -273,7 +273,8 @@ class DeepQLearning():
 			else:
 				action = torch.argmax(critic_values)
 		elif self.explore_method=='boltzmann':
-			temperature = self.explore*np.power(self.explore_decay, self.episode)
+			# temperature = self.explore*np.power(self.explore_decay, self.episode)
+			temperature = self.explore*np.exp(-self.explore_decay*self.episode)
 			action_probs = torch.nn.functional.softmax(critic_values / temperature, dim=0)
 			action_dist = torch.distributions.categorical.Categorical(probs=action_probs)
 			action = action_dist.sample()	
