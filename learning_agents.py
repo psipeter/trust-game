@@ -212,7 +212,7 @@ class DeepQLearning():
 			return x
 
 	def __init__(self, player, seed=0, n_neurons=100, ID="deep-q-learning", representation='turn-coin',
-			explore_method='boltzmann', explore=1, explore_decay=0, friendliness=0, randomize=True,
+			explore_method='boltzmann', explore=0.1, explore_decay=0, friendliness=0, randomize=True,
 			learning_method='TD0', critic_rate=3e-1, gamma=0.9, lambd=0.8):
 		self.player = player
 		self.ID = ID
@@ -221,14 +221,14 @@ class DeepQLearning():
 		self.randomize = randomize
 		if self.randomize:
 			self.gamma = self.rng.uniform(0, 1)
-			self.critic_rate = self.rng.uniform(1e-2, 5e-2)
+			self.critic_rate = self.rng.uniform(3e-2, 6e-2)
 			if self.rng.uniform(0,1)<0.5:
 				self.friendliness = 0
 			else:
 				if self.player=='investor':
-					self.friendliness = self.rng.uniform(0.1, 0.2)
+					self.friendliness = self.rng.uniform(0, 0.2)
 				else:
-					self.friendliness = self.rng.uniform(0.3, 0.4)
+					self.friendliness = self.rng.uniform(0.2, 0.4)
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
@@ -237,8 +237,8 @@ class DeepQLearning():
 		self.representation = representation
 		self.explore = explore
 		self.explore_method = explore_method
-		self.n_actions = 11 if self.player=='investor' else 31
-		# self.n_actions = 5
+		# self.n_actions = 11 if self.player=='investor' else 31
+		self.n_actions = 5
 		self.n_inputs = get_n_inputs(representation, player, self.n_actions)
 		self.n_neurons = n_neurons
 		self.learning_method = learning_method
