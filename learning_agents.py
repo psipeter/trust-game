@@ -212,31 +212,33 @@ class DeepQLearning():
 			return x
 
 	def __init__(self, player, seed=0, n_neurons=100, ID="deep-q-learning", representation='turn-coin',
-			explore_method='boltzmann', explore=0.1, explore_decay=0, friendliness=0, randomize=True,
-			learning_method='TD0', critic_rate=3e-1, gamma=0.9, lambd=0.8):
+			explore_method='boltzmann', explore_start=3, explore_decay=0.002, explore_decay_method='exponential',
+			friendliness=0, randomize=True, learning_method='TD0', critic_rate=3e-1, gamma=0.9):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = self.rng.uniform(0, 1)
-			self.critic_rate = self.rng.uniform(3e-2, 6e-2)
-			if self.rng.uniform(0,1)<0.5:
-				self.friendliness = 0
-			else:
-				if self.player=='investor':
-					self.friendliness = self.rng.uniform(0, 0.2)
-				else:
-					self.friendliness = self.rng.uniform(0.2, 0.4)
+			self.gamma = self.rng.uniform(0.99, 1.0)
+			self.critic_rate = self.rng.uniform(2e-3, 2e-3)
+			self.friendliness = self.rng.uniform(0, 0)
+			# if self.rng.uniform(0,1)<0.5:
+			# 	self.friendliness = 0
+			# else:
+			# 	if self.player=='investor':
+			# 		self.friendliness = self.rng.uniform(0.1, 0.2)
+			# 	else:
+			# 		self.friendliness = self.rng.uniform(0.2, 0.4)
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
 			self.critic_rate = critic_rate
 		self.explore_decay = explore_decay
 		self.representation = representation
-		self.explore = explore
+		self.explore_start = explore_start
 		self.explore_method = explore_method
+		self.explore_decay_method = explore_decay_method
 		# self.n_actions = 11 if self.player=='investor' else 31
 		self.n_actions = 5
 		self.n_inputs = get_n_inputs(representation, player, self.n_actions)
@@ -263,17 +265,19 @@ class DeepQLearning():
 		# Estimate the value of the current game_state
 		critic_values = self.critic(game_state)
 		# Choose and action based on thees values and some exploration strategy
+		if self.explore_decay_method == 'linear':
+			explore = np.max([0, self.explore_start - self.explore_decay*self.episode])
+		elif self.explore_decay_method =='exponential':
+			explore = self.explore_start * np.exp(-self.explore_decay*self.episode)
+		elif self.explore_decay_method == 'power':
+			explore = self.explore_start * np.power(self.explore_decay, self.episode)
 		if self.explore_method=='epsilon':
-			epsilon = self.explore*np.exp(-self.explore_decay*self.episode)
-			# epsilon = self.explore*np.power(self.explore_decay, self.episode)
-			if self.rng.uniform(0, 1) < epsilon:
+			if self.rng.uniform(0, 1) < explore:
 				action = torch.LongTensor([self.rng.randint(self.n_actions)])
 			else:
 				action = torch.argmax(critic_values)
 		elif self.explore_method=='boltzmann':
-			# temperature = self.explore*np.power(self.explore_decay, self.episode)
-			temperature = self.explore*np.exp(-self.explore_decay*self.episode)
-			action_probs = torch.nn.functional.softmax(critic_values / temperature, dim=0)
+			action_probs = torch.nn.functional.softmax(critic_values / explore, dim=0)
 			action_dist = torch.distributions.categorical.Categorical(probs=action_probs)
 			action = action_dist.sample()	
 		else:
@@ -460,34 +464,40 @@ class InstanceBased():
 			populate_method='state-similarity', value_method='next-value',
 			thr_activation=0, thr_action=0.8, thr_state=0.9, friendliness=0, randomize=True,
 			learning_method='TD0', gamma=0.99,
-			explore_method='boltzmann', explore=10, explore_decay=0):
+			explore_method='epsilon', explore_start=1, explore_decay=0.01, explore_decay_method='linear'):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
 		self.representation = representation
-		self.n_actions = 11 if self.player=='investor' else 31
+		# self.n_actions = 11 if self.player=='investor' else 31
+		self.n_actions = 5
 		self.n_inputs = get_n_inputs(representation, player, self.n_actions)
 		self.learning_method = learning_method
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = self.rng.uniform(0, 1)
-			if self.rng.uniform(0,1)<0.5:
-				self.friendliness = 0
-			else:
-				if self.player=='investor':
-					self.friendliness = self.rng.uniform(0.1, 0.2)
-				else:
-					self.friendliness = self.rng.uniform(0.3, 0.4)
+			self.gamma = 0 if self.rng.uniform(0,1)<0.5 else 0.9
+			self.critic_rate = self.rng.uniform(1e-2, 9e-2)
+			self.friendliness = 0 if self.rng.uniform(0,1)<0.5 else 0.3
+		# if self.randomize:
+		# 	self.gamma = self.rng.uniform(0, 1)
+		# 	if self.rng.uniform(0,1)<0.5:
+		# 		self.friendliness = 0
+		# 	else:
+		# 		if self.player=='investor':
+		# 			self.friendliness = self.rng.uniform(0.2, 0.3)
+		# 		else:
+		# 			self.friendliness = self.rng.uniform(0.3, 0.5)
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
-		self.explore_decay = explore_decay
 		self.thr_activation = thr_activation  # activation threshold for retrieval (loading chunks from declarative into working memory)
 		self.thr_action = thr_action  # action similarity threshold for retrieval (loading chunks from declarative into working memory)
 		self.thr_state = thr_state  # state similarity threshold for retrieval (loading chunks from declarative into working memory)
-		self.explore = explore  # probability of random action, for exploration
+		self.explore_start = explore_start  # probability of random action, for exploration
+		self.explore_decay = explore_decay
 		self.explore_method = explore_method
+		self.explore_decay_method = explore_decay_method
 		self.populate_method = populate_method  # method for determining whether a chunk in declaritive memory meets threshold
 		self.value_method = value_method  # method for assigning value to chunks during learning
 		self.declarative_memory = []
@@ -582,17 +592,21 @@ class InstanceBased():
 				else:
 					actions[action]['blended'] = 0
 			# select an action based on the exploration scheme
+			if self.explore_decay_method == 'linear':
+				explore = np.max([0, self.explore_start - self.explore_decay*self.episode])
+			elif self.explore_decay_method =='exponential':
+				explore = self.explore_start * np.exp(-self.explore_decay*self.episode)
+			elif self.explore_decay_method == 'power':
+				explore = self.explore_start * np.power(self.explore_decay, self.episode)
 			if self.explore_method=='epsilon':
-				epsilon = self.explore*np.exp(-self.explore_decay*self.episode)
-				if self.rng.uniform(0, 1) < epsilon:
+				if self.rng.uniform(0, 1) < explore:
 					selected_action = self.rng.randint(0, self.n_actions) / (self.n_actions-1)
 				else:
 					selected_action = max(actions, key=lambda action: actions[action]['blended'])
 			elif self.explore_method=='boltzmann':
-				temperature = self.explore*np.exp(-self.explore_decay*self.episode)
 				action_gens = np.array([a for a in actions])
 				action_values = np.array([actions[a]['blended'] for a in actions])
-				action_probs = scipy.special.softmax(action_values / temperature)
+				action_probs = scipy.special.softmax(action_values / explore)
 				selected_action = self.rng.choice(action_gens, p=action_probs)
 		return selected_action
 

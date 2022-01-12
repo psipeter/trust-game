@@ -33,31 +33,31 @@ sns.set_palette(palette)
 # 	sns.despine(top=True, right=True)
 # 	fig.savefig(f'plots/{name}_{learner_plays}.pdf')
 
-def plot_learning_and_policy(data, learner_plays, learner_name, opponent_name, human=False):
-	palette = sns.color_palette('deep')
-	data = data.query("player==@learner_plays")
-	data_learning = data.query("train==True") if not human else data
-	final_games = np.max(data.query('train==True')['game']) - int(np.max(data.query('train==True')['game']) * 0.1)
-	data_final = data.query("train==True & game>=@final_games").dropna() if not human else data.query('game>=@final_games').dropna()
-	generosities = data_final.query('player==@learner_plays')['generosity'].to_numpy()
-	n_learners = len(data['ID'].unique())
-	n_total = len(generosities)
-	n_nans = np.count_nonzero(np.isnan(generosities))  # count "nan" generosities (which indicate a skipped turn) in the data
-	generosities = generosities[~np.isnan(generosities)]  # remove these entries from the data
-	ylim = ((-0.1, 1.1))# if learner_plays=='investor' else ((-0.1, 0.6))
-	yticks = ((0, 1))# if learner_plays=='investor' else ((0, 0.5))
-	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((6, 2)), sharey=False)
-	sns.kdeplot(data=data_learning, x='game', y='generosity', color=palette[0],
-		bw_method=0.15, levels=5, thresh=0.2, fill=True, ax=ax)
-	ax.set(ylim=ylim, yticks=yticks, title="learning")
-	sns.histplot(data_final, x='turn', y='generosity', stat='density', color=palette[1],
-		binwidth=[1, 0.2], binrange=[[0,5],[0,1]], thresh=0.05, ax=ax2)
-	ax2.set(xlim=((0, 5)), xticks=((1,2,3,4,5)), ylim=((0, 1)), yticks=((0, 1)))
-	for x in np.arange(5): ax2.axvline(x, color='gray', alpha=0.5, linewidth=0.5)
-	for y in np.arange(0, 1.1, 0.2): ax2.axhline(y, color='gray', alpha=0.5, linewidth=0.5)
-	plt.tight_layout()
-	fig.savefig(f'plots/{learner_name}_as_{learner_plays}_versus_{opponent_name}_N={n_learners}.pdf')
-	plt.close('all')
+# def plot_learning_and_policy(data, learner_plays, learner_name, opponent_name, human=False):
+# 	palette = sns.color_palette('deep')
+# 	data = data.query("player==@learner_plays")
+# 	data_learning = data.query("train==True") if not human else data
+# 	final_games = np.max(data.query('train==True')['game']) - int(np.max(data.query('train==True')['game']) * 0.1)
+# 	data_final = data.query("train==True & game>=@final_games").dropna() if not human else data.query('game>=@final_games').dropna()
+# 	generosities = data_final.query('player==@learner_plays')['generosity'].to_numpy()
+# 	n_learners = len(data['ID'].unique())
+# 	n_total = len(generosities)
+# 	n_nans = np.count_nonzero(np.isnan(generosities))  # count "nan" generosities (which indicate a skipped turn) in the data
+# 	generosities = generosities[~np.isnan(generosities)]  # remove these entries from the data
+# 	ylim = ((-0.1, 1.1))# if learner_plays=='investor' else ((-0.1, 0.6))
+# 	yticks = ((0, 1))# if learner_plays=='investor' else ((0, 0.5))
+# 	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((6, 2)), sharey=False)
+# 	sns.kdeplot(data=data_learning, x='game', y='generosity', color=palette[0],
+# 		bw_method=0.15, levels=5, thresh=0.2, fill=True, ax=ax)
+# 	ax.set(ylim=ylim, yticks=yticks, title="learning")
+# 	sns.histplot(data_final, x='turn', y='generosity', stat='density', color=palette[1],
+# 		binwidth=[1, 0.2], binrange=[[0,5],[0,1]], thresh=0.05, ax=ax2)
+# 	ax2.set(xlim=((0, 5)), xticks=((1,2,3,4,5)), ylim=((0, 1)), yticks=((0, 1)))
+# 	for x in np.arange(5): ax2.axvline(x, color='gray', alpha=0.5, linewidth=0.5)
+# 	for y in np.arange(0, 1.1, 0.2): ax2.axhline(y, color='gray', alpha=0.5, linewidth=0.5)
+# 	plt.tight_layout()
+# 	fig.savefig(f'plots/{learner_name}_as_{learner_plays}_versus_{opponent_name}_N={n_learners}.pdf')
+# 	plt.close('all')
 
 # def plot_learning_and_policy_agent_friendliness(data, learners, learner_plays, learner_name, opponent_name, human=False):
 # 	final_games = np.max(data['game']) - int(np.max(data['game']) * 0.1)
@@ -145,6 +145,54 @@ def plot_learning_and_policy(data, learner_plays, learner_name, opponent_name, h
 # 	plt.close('all')
 
 
+def plot_learning_and_policy_agent_adaptivity(data, learners, learner_type, thr_friendliness=0.1):
+	n_games = np.max(data['game']) + 1
+	final_games = n_games - int(n_games * 0.1)
+	fig, axes = plt.subplots(nrows=8, ncols=2, figsize=((3, 8.5)))
+	xlim1 = ((-int(n_games*0.1), int(n_games*1.1)))
+	xlim2 = ((0, 5))
+	ylim = ((-0.1, 1.1))
+	ylim2 = ((0, 1))
+	yticks = ((0, 1))
+	palette = sns.color_palette('deep')
+	greedy_background = '#edffef'
+	generous_background = '#faebe8'
+	xbins = np.arange(5)
+	ybins = np.arange(0, 1.1, 0.2)
+	for i, opponent in enumerate(['cooperate', 'defect', 'gift', 'attrition']):
+		for j, player in enumerate(['investor', 'trustee']):
+			ax = axes[2*i+j][0]
+			ax2 = axes[2*i+j][1]
+			frame_color = palette[1+i]
+			background_color = '' if player=='investor' else '..'
+			ax.fill_between(xlim1, ylim[0], ylim[1], hatch=background_color, edgecolor='#bfbfbf', facecolor='white')
+			ax2.fill_between(xlim2, ylim[0], ylim[1], hatch=background_color, edgecolor='#bfbfbf', facecolor='white')
+			for spine in ax.spines.values():
+				spine.set_linewidth(2)
+				spine.set_edgecolor(frame_color)
+			for spine in ax2.spines.values():
+				spine.set_linewidth(2)
+				spine.set_edgecolor(frame_color)
+			data_group = data.query('player==@player & opponent_ID==@opponent')
+			data_final_group = data_group.query('game>=@final_games').dropna()
+			n_learners = len(data_group['ID'].unique())
+			sns.kdeplot(data=data_group, x='game', y='generosity', color=palette[0],
+				bw_method=0.1, levels=6, thresh=0.05, fill=True, ax=ax)
+			ax.set(xlim=xlim1, xticks=(()), xlabel='', ylim=ylim, yticks=(()), ylabel='')
+			sns.histplot(data_final_group, x='turn', y='generosity', stat='density', color=palette[0],
+				binwidth=[1, 0.2], binrange=[[0,5],[0,1]], thresh=0.05, ax=ax2)
+			ax2.set(xlim=xlim2, xticks=(()), xlabel='', ylim=ylim2, yticks=(()), ylabel='')
+			for x in xbins: ax2.axvline(x, color='gray', alpha=0.5, linewidth=0.5)
+			for y in ybins: ax2.axhline(y, color='gray', alpha=0.5, linewidth=0.5)
+			# ax.set(ylabel='gen', yticks=((0, 1)))
+			if j==0: ax.set(ylabel=opponent)
+	axes[7][0].set(xlabel='game', xticks=((1, n_games)))
+	axes[7][1].set(xlabel='turn', xticks=((1,2,3,4,5)))
+	plt.tight_layout()
+	fig.savefig(f'plots/{learner_type}_adaptivity_learning_policy.pdf')
+	fig.savefig(f'plots/{learner_type}_adaptivity_learning_policy.svg')
+	plt.close('all')
+
 def plot_learning_and_policy_agent_friendliness(data, learners, learner_type, thr_friendliness=0.1):
 	n_games = np.max(data['game']) + 1
 	final_games = n_games - int(n_games * 0.1)
@@ -192,7 +240,6 @@ def plot_learning_and_policy_agent_friendliness(data, learners, learner_type, th
 				ax2.set(xlim=xlim2, xticks=(()), xlabel='', ylim=ylim2, yticks=(()), ylabel='')
 				for x in xbins: ax2.axvline(x, color='gray', alpha=0.5, linewidth=0.5)
 				for y in ybins: ax2.axhline(y, color='gray', alpha=0.5, linewidth=0.5)
-
 	axes[0][0].set(ylabel='generosity', yticks=((0, 1)))
 	axes[1][0].set(ylabel='generosity', yticks=((0, 1)))
 	axes[2][0].set(ylabel='generosity', yticks=((0, 1)))

@@ -112,7 +112,7 @@ def game_loop(investor, trustee, train, g, dfs):
 # 		plot_learning(data, learner_plays=learner_plays, name='all')
 # 		plot_policy(data, learner_plays=learner_plays, name='all')
 
-def train_and_test(investors, trustees, learner_plays, n_train, learner_name, opponent_name, plot=False):
+def train_and_test(investors, trustees, learner_plays, n_train, learner_name, opponent_name):
 	learners = investors if learner_plays=='investor' else trustees
 	n_learners = len(learners)
 	dfs = []
@@ -126,10 +126,6 @@ def train_and_test(investors, trustees, learner_plays, n_train, learner_name, op
 			elif learner_plays=='trustee':
 				dfs = game_loop(investors[g], learner, train=True, g=g, dfs=dfs)
 	data = pd.concat([df for df in dfs], ignore_index=True)
-	data = data.assign(opponent=opponent_name)
-	if plot:
-		plot_learning_and_policy(data, learner_plays, learner_name, opponent_name)
-		data.to_pickle(f'agent_data/{learner_name}_as_{learner_plays}_vs_{opponent_name}_N={n_learners}.pkl')
 	return data
 	# if learner_plays=='investor':
 	# 	metrics_gen, metrics_score = process_data(data, investors)
@@ -154,25 +150,31 @@ def make_learners(learner_type, seed, n_learners):
 		learners = [NengoActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	return learners
 
-def test_adaptivity(learner_type, n_learners=10, n_train=1000,  seed=0):
+def test_adaptivity(learner_type, n_learners=10, n_train=1000, seed=0, load=False):
 	learners = make_learners(learner_type, seed, n_learners)
 	learner_name = learners[0].__class__.__name__
-	cooperate_trustee = [adaptive('trustee', 'cooperate') for _ in range(n_train)]
-	cooperate_investor = [adaptive('investor', 'cooperate') for _ in range(n_train)]
-	defect_trustee = [adaptive('trustee', 'defect') for _ in range(n_train)]
-	defect_investor = [adaptive('investor', 'defect') for _ in range(n_train)]
-	gift_trustee = [adaptive('trustee', 'gift') for _ in range(n_train)]
-	gift_investor = [adaptive('investor', 'gift') for _ in range(n_train)]
-	attrition_trustee = [adaptive('trustee', 'attrition') for _ in range(n_train)]
-	attrition_investor = [adaptive('investor', 'attrition') for _ in range(n_train)]
-	train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate", True)
-	train_and_test(cooperate_investor, learners, 'trustee', n_train, learner_name, "LearnToCooperate", True)
-	train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect", True)
-	train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect", True)
-	train_and_test(learners, gift_trustee, 'investor', n_train, learner_name, "LearnToGift", True)
-	train_and_test(gift_investor, learners, 'trustee', n_train, learner_name, "LearnToGift", True)
-	train_and_test(learners, attrition_trustee, 'investor', n_train, learner_name, "LearnToAttrition", True)
-	train_and_test(attrition_investor, learners, 'trustee', n_train, learner_name, "LearnToAttrition", True)
+	if load:
+		df = pd.read_pickle(f'agent_data/{learner_name}_N={n_learners}_adaptivity.pkl')
+	else:
+		cooperate_trustee = [adaptive('trustee', 'cooperate') for _ in range(n_train)]
+		cooperate_investor = [adaptive('investor', 'cooperate') for _ in range(n_train)]
+		defect_trustee = [adaptive('trustee', 'defect') for _ in range(n_train)]
+		defect_investor = [adaptive('investor', 'defect') for _ in range(n_train)]
+		gift_trustee = [adaptive('trustee', 'gift') for _ in range(n_train)]
+		gift_investor = [adaptive('investor', 'gift') for _ in range(n_train)]
+		attrition_trustee = [adaptive('trustee', 'attrition') for _ in range(n_train)]
+		attrition_investor = [adaptive('investor', 'attrition') for _ in range(n_train)]
+		data1 = train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate")
+		data2 = train_and_test(cooperate_investor, learners, 'trustee', n_train, learner_name, "LearnToCooperate")
+		data3 = train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect")
+		data4 = train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect")
+		data5 = train_and_test(learners, gift_trustee, 'investor', n_train, learner_name, "LearnToGift")
+		data6 = train_and_test(gift_investor, learners, 'trustee', n_train, learner_name, "LearnToGift")
+		data7 = train_and_test(learners, attrition_trustee, 'investor', n_train, learner_name, "LearnToAttrition")
+		data8 = train_and_test(attrition_investor, learners, 'trustee', n_train, learner_name, "LearnToAttrition")
+		df = pd.concat([data1, data2, data3, data4, data5, data6, data7, data8], ignore_index=True)
+		df.to_pickle(f'agent_data/{learner_name}_N={n_learners}_adaptivity.pkl')
+	plot_learning_and_policy_agent_adaptivity(df, learners, learner_type)
 
 def test_t4tv(learner_type, n_learners=100, n_train=1000, seed=0, load=False):
 	learners = make_learners(learner_type, seed, n_learners)
