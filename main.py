@@ -39,7 +39,7 @@ load = False
 
 # test_adaptivity(learner_type="tabular-q-learning", n_learners=2, n_train=1000, n_test=10, seed=0)
 # test_adaptivity(learner_type="tabular-actor-critic", n_learners=2, n_train=2000, n_test=10, seed=0)
-test_adaptivity(learner_type="deep-q-learning", n_learners=10, n_train=1000, seed=0, load=load)
+test_adaptivity(learner_type="deep-q-learning", n_learners=1, n_train=1000, seed=0, load=load)
 # test_adaptivity(learner_type="deep-actor-critic", n_learners=3, n_train=1500, n_test=10, seed=0)
 # test_adaptivity(learner_type="instance-based", n_learners=1, n_train=400, seed=0)  # deday.998
 # test_adaptivity(learner_type="nengo-q-learning", n_learners=1, n_train=100, n_test=10, seed=0)
@@ -47,7 +47,7 @@ test_adaptivity(learner_type="deep-q-learning", n_learners=10, n_train=1000, see
 
 # test_t4tv(learner_type="tabular-q-learning", n_learners=2, n_train=1000, seed=0)
 # test_t4tv(learner_type="tabular-actor-critic", n_learners=2, n_train=1000, seed=0)
-# test_t4tv(learner_type="deep-q-learning", n_learners=3, n_train=1000, seed=0, load=load)
+# test_t4tv(learner_type="deep-q-learning", n_learners=1, n_train=1000, seed=0, load=load)
 # test_t4tv(learner_type="deep-actor-critic", n_learners=2, n_train=1000, seed=0)
 # test_t4tv(learner_type="instance-based", n_learners=100, n_train=150, seed=0, load=load)
 # test_t4tv(learner_type="nengo-q-learning", n_learners=1, n_train=100, seed=0)

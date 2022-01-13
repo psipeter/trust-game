@@ -229,7 +229,7 @@ def plot_learning_and_policy_agent_friendliness(data, learners, learner_type, th
 				for spine in ax2.spines.values():
 					spine.set_linewidth(2)
 					spine.set_edgecolor(frame_color)
-				data_group = data.query('player==@player & opponent==@opponent & ID.isin(@friendliness_group)')
+				data_group = data.query('player==@player & opponent_ID==@opponent & ID.isin(@friendliness_group)')
 				data_final_group = data_group.query('game>=@final_games').dropna()
 				n_learners = len(data_group['ID'].unique())
 				sns.kdeplot(data=data_group, x='game', y='generosity', color=plot_color,

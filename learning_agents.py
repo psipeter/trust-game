@@ -211,18 +211,19 @@ class DeepQLearning():
 			x = self.output(x)
 			return x
 
-	def __init__(self, player, seed=0, n_neurons=100, ID="deep-q-learning", representation='turn-coin',
-			explore_method='boltzmann', explore_start=3, explore_decay=0.002, explore_decay_method='exponential',
-			friendliness=0, randomize=True, learning_method='TD0', critic_rate=3e-1, gamma=0.9):
+	def __init__(self, player, seed=0, n_neurons=100, ID="deep-q-learning", representation='turn-coin', 
+			explore_method='boltzmann', explore_start=3, explore_decay=0.003, explore_decay_method='exponential',
+			learning_method='TD0', randomize=True, friendliness=0, fairness=0, critic_rate=1e-2, gamma=0.9):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.99, 1.0)
-			self.critic_rate = self.rng.uniform(2e-3, 2e-3)
-			self.friendliness = self.rng.uniform(0, 0)
+			self.gamma = self.rng.uniform(0.9, 1.0)
+			self.critic_rate = self.rng.uniform(1e-3, 1e-3)
+			self.friendliness = 0  # self.rng.uniform(0.1, 0.2)
+			self.fairness = self.rng.uniform(0, 0)
 			# if self.rng.uniform(0,1)<0.5:
 			# 	self.friendliness = 0
 			# else:
@@ -300,7 +301,8 @@ class DeepQLearning():
 				return_sum += rewards[t]
 				returns.insert(0, return_sum)
 		else:
-			returns = (1.0-self.friendliness)*np.array(rewards) + self.friendliness*np.array(rewards_other)
+			# returns = (1.0-self.friendliness)*np.array(rewards) + self.friendliness*np.array(rewards_other)
+			returns = rewards - self.fairness*np.abs(np.array(rewards) - np.array(rewards_other))
 		critic_losses = []
 		for t in np.arange(game.turns):
 			action = self.action_history[t]

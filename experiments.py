@@ -156,6 +156,7 @@ def test_adaptivity(learner_type, n_learners=10, n_train=1000, seed=0, load=Fals
 	if load:
 		df = pd.read_pickle(f'agent_data/{learner_name}_N={n_learners}_adaptivity.pkl')
 	else:
+		dfs = []
 		cooperate_trustee = [adaptive('trustee', 'cooperate') for _ in range(n_train)]
 		cooperate_investor = [adaptive('investor', 'cooperate') for _ in range(n_train)]
 		defect_trustee = [adaptive('trustee', 'defect') for _ in range(n_train)]
@@ -164,15 +165,15 @@ def test_adaptivity(learner_type, n_learners=10, n_train=1000, seed=0, load=Fals
 		gift_investor = [adaptive('investor', 'gift') for _ in range(n_train)]
 		attrition_trustee = [adaptive('trustee', 'attrition') for _ in range(n_train)]
 		attrition_investor = [adaptive('investor', 'attrition') for _ in range(n_train)]
-		data1 = train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate")
-		data2 = train_and_test(cooperate_investor, learners, 'trustee', n_train, learner_name, "LearnToCooperate")
-		data3 = train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect")
-		data4 = train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect")
-		data5 = train_and_test(learners, gift_trustee, 'investor', n_train, learner_name, "LearnToGift")
-		data6 = train_and_test(gift_investor, learners, 'trustee', n_train, learner_name, "LearnToGift")
-		data7 = train_and_test(learners, attrition_trustee, 'investor', n_train, learner_name, "LearnToAttrition")
-		data8 = train_and_test(attrition_investor, learners, 'trustee', n_train, learner_name, "LearnToAttrition")
-		df = pd.concat([data1, data2, data3, data4, data5, data6, data7, data8], ignore_index=True)
+		dfs.append(train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate"))
+		dfs.append(train_and_test(cooperate_investor, learners, 'trustee', n_train, learner_name, "LearnToCooperate"))
+		dfs.append(train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect"))
+		dfs.append(train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect"))
+		dfs.append(train_and_test(learners, gift_trustee, 'investor', n_train, learner_name, "LearnToGift"))
+		dfs.append(train_and_test(gift_investor, learners, 'trustee', n_train, learner_name, "LearnToGift"))
+		dfs.append(train_and_test(learners, attrition_trustee, 'investor', n_train, learner_name, "LearnToAttrition"))
+		dfs.append(train_and_test(attrition_investor, learners, 'trustee', n_train, learner_name, "LearnToAttrition"))
+		df = pd.concat(dfs, ignore_index=True)
 		df.to_pickle(f'agent_data/{learner_name}_N={n_learners}_adaptivity.pkl')
 	plot_learning_and_policy_agent_adaptivity(df, learners, learner_type)
 
@@ -182,14 +183,15 @@ def test_t4tv(learner_type, n_learners=100, n_train=1000, seed=0, load=False):
 	if load:
 		df = pd.read_pickle(f'agent_data/{learner_name}_N={n_learners}_friendliness.pkl')
 	else:
-		greedy_trustee = [t4tv("trustee", seed=n, minO=0.1, maxO=0.3, minX=0.5, maxX=0.5, minF=0.0, maxF=0.1, minP=0.2, maxP=0.2) for n in range(n_train)]
-		greedy_investor = [t4tv("investor", seed=n, minO=0.8, maxO=1.0, minX=0.5, maxX=0.5, minF=1.0, maxF=1.0, minP=0.1, maxP=0.3) for n in range(n_train)]
-		generous_trustee = [t4tv("trustee", seed=n, minO=0.3, maxO=0.5, minX=0.5, maxX=0.5, minF=0.4, maxF=0.6, minP=1.0, maxP=1.0) for n in range(n_train)]
-		generous_investor = [t4tv("investor", seed=n, minO=0.6, maxO=0.8, minX=0.5, maxX=0.5, minF=0.8, maxF=1.0, minP=1.0, maxP=1.0) for n in range(n_train)]
-		data1 = train_and_test(learners, greedy_trustee, 'investor', n_train, learner_name, "GreedyT4T")
-		data2 = train_and_test(greedy_investor, learners, 'trustee', n_train, learner_name, "GreedyT4T")
-		data3 = train_and_test(learners, generous_trustee, 'investor', n_train, learner_name, "GenerousT4T")
-		data4 = train_and_test(generous_investor, learners, 'trustee', n_train, learner_name, "GenerousT4T")
-		df = pd.concat([data1, data2, data3, data4], ignore_index=True)
+		dfs = []
+		greedy_trustee = [t4tv("trustee", seed=n, minO=0.1, maxO=0.3, minX=0.5, maxX=0.5, minF=0.0, maxF=0.1, minP=0.2, maxP=0.2, ID='GreedyT4T') for n in range(n_train)]
+		greedy_investor = [t4tv("investor", seed=n, minO=0.8, maxO=1.0, minX=0.5, maxX=0.5, minF=1.0, maxF=1.0, minP=0.1, maxP=0.3, ID='GreedyT4T') for n in range(n_train)]
+		generous_trustee = [t4tv("trustee", seed=n, minO=0.3, maxO=0.5, minX=0.5, maxX=0.5, minF=0.4, maxF=0.6, minP=1.0, maxP=1.0, ID='GenerousT4T') for n in range(n_train)]
+		generous_investor = [t4tv("investor", seed=n, minO=0.6, maxO=0.8, minX=0.5, maxX=0.5, minF=0.8, maxF=1.0, minP=1.0, maxP=1.0, ID='GenerousT4T') for n in range(n_train)]
+		dfs.append(train_and_test(learners, greedy_trustee, 'investor', n_train, learner_name, "GreedyT4T"))
+		dfs.append(train_and_test(greedy_investor, learners, 'trustee', n_train, learner_name, "GreedyT4T"))
+		dfs.append(train_and_test(learners, generous_trustee, 'investor', n_train, learner_name, "GenerousT4T"))
+		dfs.append(train_and_test(generous_investor, learners, 'trustee', n_train, learner_name, "GenerousT4T"))
+		df = pd.concat(dfs, ignore_index=True)
 		df.to_pickle(f'agent_data/{learner_name}_N={n_learners}_friendliness.pkl')
 	plot_learning_and_policy_agent_friendliness(df, learners, learner_type)
