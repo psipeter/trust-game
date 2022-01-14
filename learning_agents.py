@@ -10,8 +10,8 @@ from utils import *
 class TabularQLearning():
 
 	def __init__(self, player, seed=0, n_actions=11, ID="tabular-q-learning", representation='turn-coin',
-			explore_method='boltzmann', explore=100, explore_decay=0.99, friendliness=0,
-			learning_method='TD0', learning_rate=1e0, gamma=0.99, lambd=0.8, randomize=True):
+			explore_method='boltzmann', explore_start=30, explore_decay=0.1, explore_decay_method='exponential',
+			learning_method='TD0', learning_rate=1e0, gamma=0.99, lambd=0, randomize=True):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -20,17 +20,23 @@ class TabularQLearning():
 		self.n_inputs = get_n_inputs(representation, player, n_actions)
 		self.n_actions = n_actions
 		self.explore_method = explore_method
-		self.explore = explore
-		self.explore_decay = explore_decay
+		self.explore_start = explore_start
+		self.explore_decay_method = explore_decay_method
 		self.randomize = randomize
 		if self.randomize:
 			self.gamma = self.rng.uniform(0, 1)
-			self.lambd = self.rng.uniform(0, 1)
-			self.friendliness = 0 if self.rng.uniform(0, 1)<0.5 else 0.2
+			self.explore_decay = self.rng.uniform(0.3, 0.5)
+			if self.player=='investor':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.1
+			elif self.player=='trustee':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.4
 		else:
 			self.gamma = gamma
-			self.lambd = lambd
 			self.friendliness = friendliness
+			self.explore_decay = explore_decay
+		self.lambd = lambd
 		self.learning_rate = learning_rate
 		self.learning_method = learning_method
 		self.Q = np.zeros((self.n_inputs, self.n_actions))
@@ -47,22 +53,25 @@ class TabularQLearning():
 		self.state_history.clear()
 		self.action_history.clear()
 		self.E = np.zeros((self.n_inputs, self.n_actions))
-		self.episode += 1
 
 	def move(self, game):
 		game_state = get_state(self.player, self.representation, game=game, return_type='index', n_actions=self.n_actions)
 		# Compute action probabilities for the current state
 		Q_state = self.Q[game_state]
 		# Sample action from q-values in the current state
+		if self.explore_decay_method == 'linear':
+			explore = np.max([0, self.explore_start - self.explore_decay*self.episode])
+		elif self.explore_decay_method =='exponential':
+			explore = self.explore_start * np.exp(-self.explore_decay*self.episode)
+		elif self.explore_decay_method == 'power':
+			explore = self.explore_start * np.power(self.explore_decay, self.episode)
 		if self.explore_method=='epsilon':
-			epsilon = self.explore*np.power(self.explore_decay, self.episode)
-			if self.rng.uniform(0, 1) < epsilon:
+			if self.rng.uniform(0, 1) < explore:
 				action = self.rng.randint(self.n_actions)
 			else:
 				action = np.argmax(Q_state)
 		elif self.explore_method=='boltzmann':
-			temperature = self.explore*np.power(self.explore_decay, self.episode)
-			action_probs = scipy.special.softmax(Q_state / temperature)
+			action_probs = scipy.special.softmax(Q_state / explore)
 			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)
 		elif self.explore_method=='upper-confidence-bound':
 			ucb = np.sqrt(2*np.log(self.episode)/(self.C[game_state]+np.ones((self.n_actions))))
@@ -80,6 +89,7 @@ class TabularQLearning():
 		return give, keep
 
 	def learn(self, game):
+		self.episode += 1
 		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
 		rewards_other = game.trustee_reward if self.player=='investor' else game.investor_reward
 		if self.learning_method=='MC':
@@ -90,6 +100,7 @@ class TabularQLearning():
 				returns.insert(0, return_sum)
 		else:
 			returns = (1.0-self.friendliness)*np.array(rewards) + self.friendliness*np.array(rewards_other)
+			# returns = (np.array(rewards) + self.friendliness*np.array(rewards_other)) / (1+self.friendliness)
 		for t in np.arange(game.turns):
 			state = self.state_history[t]
 			action = self.action_history[t]
@@ -211,37 +222,35 @@ class DeepQLearning():
 			x = self.output(x)
 			return x
 
-	def __init__(self, player, seed=0, n_neurons=100, ID="deep-q-learning", representation='turn-coin', 
-			explore_method='boltzmann', explore_start=3, explore_decay=0.003, explore_decay_method='exponential',
-			learning_method='TD0', randomize=True, friendliness=0, fairness=0, critic_rate=1e-2, gamma=0.9):
+	def __init__(self, player, seed=0, n_actions=11, n_neurons=1000, ID="deep-q-learning", representation='turn-coin', 
+			# explore_method='boltzmann', explore_start=2, explore_decay=0.001, explore_decay_method='exponential',
+			explore_method='boltzmann', explore_start=30, explore_decay=0, explore_decay_method='exponential',
+			learning_method='TD0', randomize=True, friendliness=0, critic_rate=1e-2, gamma=0.9):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.9, 1.0)
-			self.critic_rate = self.rng.uniform(1e-3, 1e-3)
-			self.friendliness = 0  # self.rng.uniform(0.1, 0.2)
-			self.fairness = self.rng.uniform(0, 0)
-			# if self.rng.uniform(0,1)<0.5:
-			# 	self.friendliness = 0
-			# else:
-			# 	if self.player=='investor':
-			# 		self.friendliness = self.rng.uniform(0.1, 0.2)
-			# 	else:
-			# 		self.friendliness = self.rng.uniform(0.2, 0.4)
+			self.gamma = self.rng.uniform(0, 1)
+			self.critic_rate = self.rng.uniform(2e-2, 4e-2)
+			self.explore_decay = self.rng.uniform(0.4, 0.6)
+			if self.player=='investor':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.1
+			elif self.player=='trustee':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.4
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
 			self.critic_rate = critic_rate
-		self.explore_decay = explore_decay
+			self.explore_decay = explore_decay
 		self.representation = representation
 		self.explore_start = explore_start
 		self.explore_method = explore_method
 		self.explore_decay_method = explore_decay_method
-		# self.n_actions = 11 if self.player=='investor' else 31
-		self.n_actions = 5
+		self.n_actions = n_actions
 		self.n_inputs = get_n_inputs(representation, player, self.n_actions)
 		self.n_neurons = n_neurons
 		self.learning_method = learning_method
@@ -301,8 +310,8 @@ class DeepQLearning():
 				return_sum += rewards[t]
 				returns.insert(0, return_sum)
 		else:
-			# returns = (1.0-self.friendliness)*np.array(rewards) + self.friendliness*np.array(rewards_other)
-			returns = rewards - self.fairness*np.abs(np.array(rewards) - np.array(rewards_other))
+			returns = (1.0-self.friendliness)*np.array(rewards) + self.friendliness*np.array(rewards_other)
+			# returns = rewards - self.fairness*np.abs(np.array(rewards) - np.array(rewards_other))
 		critic_losses = []
 		for t in np.arange(game.turns):
 			action = self.action_history[t]
@@ -447,7 +456,7 @@ class DeepActorCritic():
 class InstanceBased():
 
 	class Chunk():
-		def __init__(self, state, action, reward, value, episode, decay=0.5, epsilon=0):
+		def __init__(self, state, action, reward, value, episode, decay, epsilon):
 			self.state = state
 			self.action = action
 			self.reward = reward
@@ -462,40 +471,41 @@ class InstanceBased():
 				activation += (episode - t)**(-self.decay)
 			return np.log(activation) + rng.logistic(loc=0.0, scale=self.epsilon)
 
-	def __init__(self, player, seed=0, ID="instance-based", representation='turn-coin',
+	def __init__(self, player, seed=0, n_actions=11, ID="instance-based", representation='turn-coin',
 			populate_method='state-similarity', value_method='next-value',
 			thr_activation=0, thr_action=0.8, thr_state=0.9, friendliness=0, randomize=True,
-			learning_method='TD0', gamma=0.99,
-			explore_method='epsilon', explore_start=1, explore_decay=0.01, explore_decay_method='linear'):
+			learning_method='TD0', gamma=0.99, decay=0.5, epsilon=0.3,
+			explore_method='epsilon', explore_start=1, explore_decay=0.002, explore_decay_method='linear'):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
 		self.representation = representation
 		# self.n_actions = 11 if self.player=='investor' else 31
-		self.n_actions = 5
+		self.n_actions = n_actions
 		self.n_inputs = get_n_inputs(representation, player, self.n_actions)
 		self.learning_method = learning_method
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = 0 if self.rng.uniform(0,1)<0.5 else 0.9
-			self.critic_rate = self.rng.uniform(1e-2, 9e-2)
-			self.friendliness = 0 if self.rng.uniform(0,1)<0.5 else 0.3
-		# if self.randomize:
-		# 	self.gamma = self.rng.uniform(0, 1)
-		# 	if self.rng.uniform(0,1)<0.5:
-		# 		self.friendliness = 0
-		# 	else:
-		# 		if self.player=='investor':
-		# 			self.friendliness = self.rng.uniform(0.2, 0.3)
-		# 		else:
-		# 			self.friendliness = self.rng.uniform(0.3, 0.5)
+			self.gamma = self.rng.uniform(0, 1)
+			self.decay = self.rng.uniform(0.4, 0.6)
+			self.epsilon = self.rng.uniform(0.2, 0.4)
+			# self.friendliness = 0
+			if self.player=='investor':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.2
+			elif self.player=='trustee':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.3
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
+			self.decay = decay  # decay rate for memory chunks
+			self.epsilon = epsilon  # logistic noise in memory retrieval
 		self.thr_activation = thr_activation  # activation threshold for retrieval (loading chunks from declarative into working memory)
 		self.thr_action = thr_action  # action similarity threshold for retrieval (loading chunks from declarative into working memory)
-		self.thr_state = thr_state  # state similarity threshold for retrieval (loading chunks from declarative into working memory)
+		# self.thr_state = thr_state  # state similarity threshold for retrieval (loading chunks from declarative into working memory)
+		self.thr_state = 1 - 1/self.n_actions
 		self.explore_start = explore_start  # probability of random action, for exploration
 		self.explore_decay = explore_decay
 		self.explore_method = explore_method
@@ -523,7 +533,7 @@ class InstanceBased():
 		# select an action (generosity) that immitates the best chunk in working memory
 		self.state = self.select_action()
 		# create a new chunk for the chosen action, populate with more information in learn()
-		new_chunk = self.Chunk(state=game_state, action=None, reward=None, value=None, episode=self.episode)
+		new_chunk = self.Chunk(game_state, None, None, None, self.episode, self.decay, self.epsilon)
 		self.learning_memory.append(new_chunk)
 		# translate action into environment-appropriate signal
 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
@@ -555,10 +565,8 @@ class InstanceBased():
 						current_coins = game.investor_give[-1]*game.match
 						diff_coin = np.abs(chunk_coins - current_coins)
 						similarity_state = 1.0 - diff_coin / (game.coins*game.match+1)
-						# print('chunk', chunk_coins, 'current', current_coins, 'similarity', similarity_state)
 					else:
 						similarity_state = 0
-						# print('chunk', chunk_coins, 'current', current_coins, 'similarity', similarity_state)
 			# load the chunk into working memory if various checks on activation, action similarity, and/or state similarity are passed
 			pass_activation = activation > self.thr_activation
 			pass_action = similarity_action > self.thr_action
@@ -627,7 +635,6 @@ class InstanceBased():
 			returns = (1.0-self.friendliness)*np.array(rewards) + self.friendliness*np.array(rewards_other)
 		for t in np.arange(game.turns):
 			chunk = self.learning_memory[t]
-			next_chunk = self.learning_memory[t+1] if t<(game.turns-1) else None
 			chunk.action = actions[t]
 			chunk.reward = returns[t]
 			# estimate the value of the next chunk by retrieving all similar chunks and computing their blended value
@@ -638,30 +645,30 @@ class InstanceBased():
 				next_chunk_rewards = []
 				next_chunk_values = []
 				next_chunk_activations = []
-				for next_chunk in self.declarative_memory:
-					activation = next_chunk.get_activation(self.episode, self.rng)
+				for recalled_chunk in self.declarative_memory:
+					recalled_activation = recalled_chunk.get_activation(self.episode, self.rng)
 					if self.representation=='turn':
-						chunk_turn = next_chunk.state
+						chunk_turn = recalled_chunk.state
 						similarity_state = 1 if next_turn==chunk_turn else 0
 					elif self.representation=='turn-coin':
 						if self.player=='investor':
-							chunk_turn = chunk.state
-							similarity_state = 1 if t==chunk_turn else 0
+							chunk_turn = recalled_chunk.state
+							similarity_state = 1 if next_turn==chunk_turn else 0
 						else:
-							chunk_turn = int(chunk.state / (game.coins*game.match+1))
-							if t==chunk_turn:
-								chunk_coins = chunk.state - chunk_turn*(game.coins*game.match+1)
-								current_coins = game.investor_give[-1]*game.match
+							chunk_turn = int(recalled_chunk.state / (game.coins*game.match+1))
+							if next_turn==chunk_turn:
+								chunk_coins = recalled_chunk.state - chunk_turn*(game.coins*game.match+1)
+								current_coins = game.investor_give[next_turn]*game.match
 								diff_coin = np.abs(chunk_coins - current_coins)
 								similarity_state = 1.0 - diff_coin / (game.coins*game.match+1)
 							else:
 								similarity_state = 0
-					pass_activation = activation > self.thr_activation
+					pass_activation = recalled_activation > self.thr_activation
 					pass_state = similarity_state > self.thr_state
 					if pass_activation and pass_state:
-						next_chunk_rewards.append(next_chunk.reward)
-						next_chunk_values.append(next_chunk.value)
-						next_chunk_activations.append(activation)
+						next_chunk_rewards.append(recalled_chunk.reward)
+						next_chunk_values.append(recalled_chunk.value)
+						next_chunk_activations.append(recalled_activation)
 				if len(next_chunk_values)>0:
 					next_reward_blended = np.average(next_chunk_rewards, weights=next_chunk_activations)
 					next_value_blended = np.average(next_chunk_values, weights=next_chunk_activations)

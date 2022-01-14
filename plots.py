@@ -213,8 +213,10 @@ def plot_learning_and_policy_agent_friendliness(data, learners, learner_type, th
 				friendliness_group = []
 				for learner in learners:
 					if friendliness=='self' and learner.friendliness<=thr_friendliness:
+					# if friendliness=='self' and learner.fairness<=thr_friendliness:
 						friendliness_group.append(learner.ID)
 					elif friendliness=='social' and learner.friendliness>thr_friendliness:
+					# elif friendliness=='social' and learner.fairness>thr_friendliness:
 						friendliness_group.append(learner.ID)
 				ax = axes[2*i+j][2*k]
 				ax2 = axes[2*i+j][2*k+1]
@@ -250,6 +252,63 @@ def plot_learning_and_policy_agent_friendliness(data, learners, learner_type, th
 	plt.tight_layout()
 	fig.savefig(f'plots/{learner_type}_friendliness_learning_policy.pdf')
 	fig.savefig(f'plots/{learner_type}_friendliness_learning_policy.svg')
+	plt.close('all')
+
+
+def plot_learning_and_coins_agent_friendliness(data, learners, learner_type, thr_friendliness=0.1):
+	n_games = np.max(data['game']) + 1
+	final_games = n_games - int(n_games * 0.1)
+	fig, axes = plt.subplots(nrows=4, ncols=4, figsize=((6.5, 6.5)))
+	xlim1 = ((-int(n_games*0.1), int(n_games*1.1)))
+	xlim2 = ((0, 5))
+	ylim = ((-0.1, 1.1))
+	ylim2 = ((-3, 31))
+	yticks = ((0, 1))
+	palette = sns.color_palette('deep')
+	greedy_background = '#edffef'
+	generous_background = '#faebe8'
+	xbins = np.arange(5)
+	ybins = np.arange(0, 1.1, 0.2)
+	for i, opponent in enumerate(['GreedyT4T', 'GenerousT4T']):
+		for j, player in enumerate(['investor', 'trustee']):
+			for k, friendliness in enumerate(['self', 'social']):
+				friendliness_group = []
+				for learner in learners:
+					if friendliness=='self' and learner.friendliness<=thr_friendliness:
+						friendliness_group.append(learner.ID)
+					elif friendliness=='social' and learner.friendliness>thr_friendliness:
+						friendliness_group.append(learner.ID)
+				ax = axes[2*i+j][2*k]
+				ax2 = axes[2*i+j][2*k+1]
+				plot_color = palette[0] if friendliness=='self' else palette[1]
+				frame_color = palette[3] if opponent=='GreedyT4T' else palette[2]
+				background_color = '' if player=='investor' else '..'
+				ax.fill_between(xlim1, ylim[0], ylim[1], hatch=background_color, edgecolor='#bfbfbf', facecolor='white')
+				ax2.fill_between(xlim2, ylim[0], ylim[1], hatch=background_color, edgecolor='#bfbfbf', facecolor='white')
+				for spine in ax.spines.values():
+					spine.set_linewidth(2)
+					spine.set_edgecolor(frame_color)
+				for spine in ax2.spines.values():
+					spine.set_linewidth(2)
+					spine.set_edgecolor(frame_color)
+				data_group = data.query('player==@player & opponent_ID==@opponent & ID.isin(@friendliness_group)')
+				n_learners = len(data_group['ID'].unique())
+				sns.kdeplot(data=data_group, x='game', y='generosity', color=plot_color,
+					bw_method=0.1, levels=6, thresh=0.05, fill=True, ax=ax)
+				ax.set(xlim=xlim1, xticks=(()), xlabel='', ylim=ylim, yticks=(()), ylabel='')
+				sns.kdeplot(data=data_group, x='game', y='coins', color=plot_color,
+					bw_method=0.1, levels=6, thresh=0.05, fill=True, ax=ax2)
+				ax2.set(xlim=xlim1, xticks=(()), xlabel='', ylim=ylim2, yticks=(()), ylabel='')
+	axes[0][0].set(ylabel='generosity', yticks=((0, 1)))
+	axes[1][0].set(ylabel='generosity', yticks=((0, 1)))
+	axes[2][0].set(ylabel='generosity', yticks=((0, 1)))
+	axes[3][0].set(ylabel='generosity', yticks=((0, 1)), xlabel='game', xticks=((1, n_games)))
+	axes[3][2].set(xlabel='game', xticks=((1, n_games)))
+	axes[3][1].set(xlabel='turn', xticks=((1, n_games)))
+	axes[3][3].set(xlabel='turn', xticks=((1, n_games)))
+	plt.tight_layout()
+	fig.savefig(f'plots/{learner_type}_friendliness_learning_coins.pdf')
+	fig.savefig(f'plots/{learner_type}_friendliness_learning_coins.svg')
 	plt.close('all')
 
 
