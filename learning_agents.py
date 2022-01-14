@@ -222,10 +222,10 @@ class DeepQLearning():
 			x = self.output(x)
 			return x
 
-	def __init__(self, player, seed=0, n_actions=11, n_neurons=1000, ID="deep-q-learning", representation='turn-coin', 
+	def __init__(self, player, seed=0, n_actions=11, n_neurons=100, ID="deep-q-learning", representation='turn-coin', 
 			# explore_method='boltzmann', explore_start=2, explore_decay=0.001, explore_decay_method='exponential',
-			explore_method='boltzmann', explore_start=30, explore_decay=0, explore_decay_method='exponential',
-			learning_method='TD0', randomize=True, friendliness=0, critic_rate=1e-2, gamma=0.9):
+			explore_method='epsilon', explore_start=1, explore_decay=0.001, explore_decay_method='linear',
+			learning_method='TD0', randomize=False, friendliness=0, critic_rate=1e-2, gamma=0.9):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -475,7 +475,7 @@ class InstanceBased():
 			populate_method='state-similarity', value_method='next-value',
 			thr_activation=0, thr_action=0.8, thr_state=0.9, friendliness=0, randomize=True,
 			learning_method='TD0', gamma=0.99, decay=0.5, epsilon=0.3,
-			explore_method='epsilon', explore_start=1, explore_decay=0.002, explore_decay_method='linear'):
+			explore_method='epsilon', explore_start=1, explore_decay=0.001, explore_decay_method='linear'):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -496,7 +496,7 @@ class InstanceBased():
 				else: self.friendliness = 0.2
 			elif self.player=='trustee':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.3
+				else: self.friendliness = 0.4
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
