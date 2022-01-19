@@ -745,7 +745,8 @@ class NengoQLearning():
 			rewards = game.investor_reward if player=='investor' else game.trustee_reward
 			rewards_other = game.trustee_reward if player=='investor' else game.investor_reward
 			reward = (1-self.friendliness)*rewards[-1]+self.friendliness*rewards_other[-1] if len(rewards)>0 else 0
-			self.history.append(reward)
+			max_reward = game.coins * game.match
+			self.history.append(reward / max_reward)
 		def clear(self):
 			self.history.clear()
 		def get(self):
@@ -761,8 +762,8 @@ class NengoQLearning():
 		def get(self):
 			return self.history[-1] if len(self.history)>0 else 0
 
-	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-gen-opponent',
-			encoder_method='one-hot', learning_rate=5e-5, n_neurons=100, dt=1e-3, turn_time=1e-2, q=6,
+	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-coin',
+			encoder_method='one-hot', learning_rate=1e-6, n_neurons=100, dt=1e-3, turn_time=1e-2, q=10,
 			explore_method='epsilon', explore=1, explore_decay=0.007, gamma=0.99, friendliness=0):
 		self.player = player
 		self.ID = ID
@@ -771,7 +772,8 @@ class NengoQLearning():
 		self.representation = representation
 		self.n_inputs = get_n_inputs(representation, player, n_actions, extra_turn=1)
 		self.n_actions = n_actions
-		self.n_neurons = n_neurons
+		# self.n_neurons = n_neurons
+		self.n_neurons = self.n_inputs
 		self.dt = dt
 		self.encoder_method = encoder_method
 		self.learning_rate = learning_rate
@@ -785,7 +787,6 @@ class NengoQLearning():
 		self.state_input = self.StateInput(self.n_inputs)
 		self.reward_input = self.PastRewardInput(self.friendliness)
 		self.action_input = self.PastActionInput()
-		self.encoders, self.intercepts = self.build_encoders()
 		self.delay = nengolib.synapses.PadeDelay(turn_time, q)
 		self.d_critic = np.zeros((self.n_neurons, self.n_actions))
 		self.network = None
@@ -804,27 +805,10 @@ class NengoQLearning():
 		self.simulator.reset(self.seed)
 		self.episode += 1
 
-	def build_encoders(self):
-		if self.encoder_method=='uniform':
-			intercepts = nengo.Default
-			encoders = nengo.Default
-		elif self.encoder_method=='one-hot':
-			intercepts = nengo.dists.Uniform(0.1, 1)
-			encs = []
-			for dim in range(self.n_inputs):
-				enc = np.zeros((self.n_inputs))
-				enc[dim] = 1
-				encs.append(enc)
-			encoders = []
-			for i in range(self.n_neurons):
-				encoders.append(encs[i%len(encs)])
-			# encoders = nengo.dists.Choice(encs)
-		return encoders, intercepts
-
 	def build_network(self):
-		n_neurons = self.n_neurons
 		n_actions = self.n_actions
 		n_inputs = self.n_inputs
+		n_neurons = self.n_neurons
 		seed = self.seed
 		network = nengo.Network(seed=seed)
 		network.config[nengo.Ensemble].seed = seed
@@ -870,7 +854,7 @@ class NengoQLearning():
 						error[past_action] = past_reward + self.gamma*np.max(value) - past_value[past_action] # TD0 update
 					elif 5*self.turn_time<t:
 						error[past_action] = past_reward - past_value[past_action] # TD0 update on last turn
-					delta = (self.learning_rate / self.n_neurons) * past_activity.reshape(-1, 1) * error.reshape(1, -1)  # PES update
+					delta = self.learning_rate * past_activity.reshape(-1, 1) * error.reshape(1, -1)  # PES update
 					self.d[:] += delta  # update decoders
 					return error
 
@@ -878,20 +862,20 @@ class NengoQLearning():
 			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=1)
 			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=1)
 
-			state = nengo.Ensemble(n_neurons, n_inputs, intercepts=self.intercepts, encoders=self.encoders)
+			state = nengo.Ensemble(n_neurons, 1, intercepts=nengo.dists.Uniform(0.1, 0.1), encoders=nengo.dists.Choice([[1]]))
 			critic = CriticNode(n_neurons, n_actions, d=self.d_critic)
 			error = ErrorNode(n_neurons, n_actions, turn_time=self.turn_time, d=self.d_critic, learning_rate=self.learning_rate, gamma=self.gamma)
 
-			nengo.Connection(state_input, state, synapse=None)
+			nengo.Connection(state_input, state.neurons, synapse=None)
 			nengo.Connection(state.neurons, critic, synapse=None)
-			nengo.Connection(state.neurons, error[:self.n_neurons], synapse=self.delay)
+			nengo.Connection(state.neurons, error[:n_neurons], synapse=self.delay)
 			nengo.Connection(critic, error[n_neurons: n_neurons+n_actions], synapse=None)
 			nengo.Connection(critic, error[n_neurons+n_actions: n_neurons+2*n_actions], synapse=self.delay)
 			nengo.Connection(past_action, error[-2], synapse=None)
 			nengo.Connection(past_reward, error[-1], synapse=None)
 
 			network.p_input = nengo.Probe(state_input)
-			network.p_state = nengo.Probe(state)
+			network.p_state = nengo.Probe(state.neurons)
 			network.p_critic = nengo.Probe(critic)
 			network.p_error = nengo.Probe(error)
 			network.critic = critic
@@ -902,6 +886,8 @@ class NengoQLearning():
 	def simulate_action(self):
 		self.simulator.run(self.turn_time, progress_bar=False)
 		x_critic = self.simulator.data[self.network.p_critic][-1]
+		# print(self.simulator.data[self.network.p_input][-1])
+		# print(self.simulator.data[self.network.p_state][-1])
 		if self.explore_method=='epsilon':
 			epsilon = self.explore - self.explore_decay*self.episode
 			if self.rng.uniform(0, 1) < epsilon:
