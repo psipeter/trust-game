@@ -752,6 +752,24 @@ class NengoQLearning():
 		def get(self):
 			return self.history[-1] if len(self.history)>0 else 0
 
+	class ExploreInput():
+		def __init__(self, n_actions, rng, value_pos=2, value_neg=0):
+			self.n_actions = n_actions
+			self.rng = rng
+			self.value_pos = value_pos
+			self.value_neg = value_neg
+			self.vector = None
+		def set(self, explore_start, explore_decay, explore_decay_method, episode):
+			if explore_decay_method == 'linear':
+				explore = explore_start - explore_decay*episode
+			self.vector = np.zeros((self.n_actions))
+			if self.rng.uniform(0,1) < explore:
+				random_action = self.rng.randint(self.n_actions)
+				self.vector[~random_action] = self.value_neg
+				self.vector[random_action] = self.value_pos
+		def get(self):
+			return self.vector
+
 	class PastActionInput():
 		def __init__(self):
 			self.history = []
@@ -764,7 +782,8 @@ class NengoQLearning():
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-coin',
 			encoder_method='one-hot', learning_rate=1e-6, n_neurons=300, dt=1e-3, turn_time=1e-2, q=10,
-			explore_method='epsilon', explore=1, explore_decay=0.007, gamma=0.99, friendliness=0):
+			explore_method='epsilon', explore_start=1, explore_decay=0.007, explore_decay_method='linear',
+			gamma=0.99, friendliness=0):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -781,11 +800,13 @@ class NengoQLearning():
 		self.turn_time = turn_time
 		self.friendliness = friendliness
 		self.explore_method = explore_method
-		self.explore = explore
+		self.explore_start = explore_start
 		self.explore_decay = explore_decay
+		self.explore_decay_method = explore_decay_method
 		self.state_input = self.StateInput(self.n_inputs)
 		self.reward_input = self.PastRewardInput(self.friendliness)
 		self.action_input = self.PastActionInput()
+		self.explore_input = self.ExploreInput(self.n_actions, self.rng)
 		self.delay = nengolib.synapses.PadeDelay(turn_time, q)
 		self.d_critic = np.zeros((self.n_inputs, self.n_actions))
 		self.network = None
@@ -859,6 +880,7 @@ class NengoQLearning():
 			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=self.n_inputs)
 			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=1)
 			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=1)
+			explore_input = nengo.Node(lambda t, x: self.explore_input.get(), size_in=2, size_out=n_actions)
 
 			state = nengo.Ensemble(n_inputs, 1, intercepts=nengo.dists.Uniform(0.1, 0.1), encoders=nengo.dists.Choice([[1]]))
 			learning = PESNode(n_inputs, self.d_critic, self.learning_rate)
@@ -878,9 +900,9 @@ class NengoQLearning():
 			nengo.Connection(critic, error[n_actions: 2*n_actions], synapse=self.delay)
 			nengo.Connection(past_action, error[-2], synapse=None)
 			nengo.Connection(past_reward, error[-1], synapse=None)
-			# nengo.Connection(critic, basal_ganglia.input, synapse=None)
 			nengo.Connection(critic, probs, function=lambda x: scipy.special.softmax(30*x), synapse=None)
 			nengo.Connection(probs, basal_ganglia.input, synapse=None)
+			nengo.Connection(explore_input, basal_ganglia.input, synapse=None)  # epsilon random action
 			nengo.Connection(basal_ganglia.output, thalamus.input, synapse=None)
 
 			network.p_input = nengo.Probe(state_input)
@@ -904,13 +926,13 @@ class NengoQLearning():
 		# print('probs \t', np.around(probs, 2), '\t', np.around(np.sum(probs),2))
 		# print('basal \t', np.around(bg, 2))
 		print('thalam \t', np.around(thalamus, 2))
-		if self.explore_method=='epsilon':			
-			epsilon = self.explore - self.explore_decay*self.episode
-			if self.rng.uniform(0, 1) < epsilon:
-				action = self.rng.randint(self.n_actions)
-			else:
-				# action = np.argmax(critic)
-				action = np.argmax(thalamus)
+		if self.explore_method=='epsilon':
+			# if self.explore_decay_method=='linear':		
+			# 	epsilon = self.explore_start - self.explore_decay*self.episode
+			# if self.rng.uniform(0, 1) < epsilon:
+			# 	action = self.rng.randint(self.n_actions)
+			# else:
+			action = np.argmax(thalamus)
 		elif self.explore_method=='boltzmann':
 			temperature = self.explore*np.exp(-self.explore_decay*self.episode)
 			action_probs = scipy.special.softmax(critic / temperature)
@@ -924,8 +946,8 @@ class NengoQLearning():
 			dim=self.n_inputs, n_actions=self.n_actions)
 		# add the game state to the network's state input
 		self.state_input.set(game_state)
-		# use reward from the previous turn for online learning
 		self.reward_input.set(self.player, game)
+		self.explore_input.set(self.explore_start, self.explore_decay, self.explore_decay_method, self.episode)
 		# simulate the network with these inputs and collect the action outputs
 		action = self.simulate_action()
 		# translate action into environment-appropriate signal
