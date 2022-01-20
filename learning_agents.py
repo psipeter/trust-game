@@ -775,10 +775,13 @@ class NengoQLearning():
 			return self.vector
 
 	class PastActionInput():
-		def __init__(self):
+		def __init__(self, n_actions):
 			self.history = []
+			self.n_actions = n_actions
 		def set(self, action):
-			self.history.append(action)
+			one_hot_action = np.zeros((self.n_actions))
+			one_hot_action[action] = 1
+			self.history.append(one_hot_action)
 		def clear(self):
 			self.history.clear()
 		def get(self):
@@ -800,7 +803,7 @@ class NengoQLearning():
 		self.encoder_method = encoder_method
 		self.learning_rate = learning_rate
 		self.gamma = gamma
-		self.q = q  # order of LMU
+		self.q = q
 		self.turn_time = turn_time
 		self.friendliness = friendliness
 		self.explore_method = explore_method
@@ -809,7 +812,7 @@ class NengoQLearning():
 		self.explore_decay_method = explore_decay_method
 		self.state_input = self.StateInput(self.n_inputs)
 		self.reward_input = self.PastRewardInput(self.friendliness, self.n_actions)
-		self.action_input = self.PastActionInput()
+		self.action_input = self.PastActionInput(self.n_actions)
 		self.explore_input = self.ExploreInput(self.n_actions, self.rng)
 		self.delay = nengolib.synapses.PadeDelay(turn_time, q)
 		self.d_critic = np.zeros((self.n_inputs, self.n_actions))
@@ -862,7 +865,7 @@ class NengoQLearning():
 			class ErrorNode(nengo.Node):
 				def __init__(self, n_actions, turn_time):
 					self.n_actions = n_actions
-					self.size_in = 3*self.n_actions + 1
+					self.size_in = 4*self.n_actions
 					self.size_out = n_actions
 					self.turn_time = turn_time
 					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
@@ -870,21 +873,20 @@ class NengoQLearning():
 					value = x[:self.n_actions]  # current state of the critic
 					past_value = x[self.n_actions: 2*self.n_actions]  # previous state of the critic
 					past_reward = x[2*self.n_actions: 3*self.n_actions]  # reward associated with past activities
-					past_action = int(x[-1])  # action chosen on the previous turn
+					past_action = x[3*self.n_actions: 4*self.n_actions]  # action chosen on the previous turn
 					error = past_reward
 					if 0<t<=self.turn_time:
-						error[past_action] = 0
+						error *= 0
 					elif self.turn_time<t<=5*self.turn_time:
-						error[past_action] += np.max(value) - past_value[past_action] # TD0 update
-						# error[past_action] = past_reward - past_value[past_action] # TD0 update
-						# error[:] += value
+						error += np.multiply(np.max(value), past_action)
+						error -= np.multiply(past_value, past_action)
 					elif 5*self.turn_time<t:
-						error[past_action] -= past_value[past_action] # TD0 update on last turn
+						error -= np.multiply(past_value, past_action)
 					return error
 
 			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=self.n_inputs)
 			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=n_actions)
-			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=1)
+			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=n_actions)
 			explore_input = nengo.Node(lambda t, x: self.explore_input.get(), size_in=2, size_out=n_actions)
 
 			state = nengo.Ensemble(n_inputs, 1, intercepts=nengo.dists.Uniform(0.1, 0.1), encoders=nengo.dists.Choice([[1]]))
@@ -907,7 +909,7 @@ class NengoQLearning():
 			nengo.Connection(critic, error[:n_actions], transform=self.gamma, synapse=None)
 			nengo.Connection(critic, error[n_actions: 2*n_actions], synapse=self.delay)
 			nengo.Connection(past_reward, error[2*n_actions: 3*n_actions], synapse=None)
-			nengo.Connection(past_action, error[-1], synapse=None)
+			nengo.Connection(past_action, error[3*n_actions: 4*n_actions], synapse=None)
 
 			nengo.Connection(critic, probs, function=lambda x: scipy.special.softmax(30*x), synapse=None)
 			nengo.Connection(probs, basal_ganglia.input, synapse=None)
