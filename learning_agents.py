@@ -738,22 +738,26 @@ class NengoQLearning():
 			return self.state
 
 	class PastRewardInput():
-		def __init__(self, friendliness):
+		def __init__(self, friendliness, n_actions):
 			self.history = []
 			self.friendliness = friendliness
+			self.n_actions = n_actions
+			self.past_action = None
 		def set(self, player, game):
 			rewards = game.investor_reward if player=='investor' else game.trustee_reward
 			rewards_other = game.trustee_reward if player=='investor' else game.investor_reward
 			reward = (1-self.friendliness)*rewards[-1]+self.friendliness*rewards_other[-1] if len(rewards)>0 else 0
 			max_reward = game.coins * game.match
-			self.history.append(reward / max_reward)
+			one_hot_reward = np.zeros((self.n_actions))
+			one_hot_reward[self.past_action] = reward / max_reward
+			self.history.append(one_hot_reward)
 		def clear(self):
 			self.history.clear()
 		def get(self):
 			return self.history[-1] if len(self.history)>0 else 0
 
 	class ExploreInput():
-		def __init__(self, n_actions, rng, value_pos=2, value_neg=0):
+		def __init__(self, n_actions, rng, value_pos=1, value_neg=0):
 			self.n_actions = n_actions
 			self.rng = rng
 			self.value_pos = value_pos
@@ -804,7 +808,7 @@ class NengoQLearning():
 		self.explore_decay = explore_decay
 		self.explore_decay_method = explore_decay_method
 		self.state_input = self.StateInput(self.n_inputs)
-		self.reward_input = self.PastRewardInput(self.friendliness)
+		self.reward_input = self.PastRewardInput(self.friendliness, self.n_actions)
 		self.action_input = self.PastActionInput()
 		self.explore_input = self.ExploreInput(self.n_actions, self.rng)
 		self.delay = nengolib.synapses.PadeDelay(turn_time, q)
@@ -856,29 +860,30 @@ class NengoQLearning():
 					return value
 
 			class ErrorNode(nengo.Node):
-				def __init__(self, n_actions, turn_time, gamma):
+				def __init__(self, n_actions, turn_time):
 					self.n_actions = n_actions
-					self.size_in = 2*self.n_actions + 2
+					self.size_in = 3*self.n_actions + 1
 					self.size_out = n_actions
 					self.turn_time = turn_time
-					self.gamma = gamma
 					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
 				def step(self, t, x):
 					value = x[:self.n_actions]  # current state of the critic
 					past_value = x[self.n_actions: 2*self.n_actions]  # previous state of the critic
-					past_action = int(x[-2])  # action chosen on the previous turn
-					past_reward = x[-1]  # reward associated with past activities
-					error = np.zeros((self.n_actions))
+					past_reward = x[2*self.n_actions: 3*self.n_actions]  # reward associated with past activities
+					past_action = int(x[-1])  # action chosen on the previous turn
+					error = past_reward
 					if 0<t<=self.turn_time:
 						error[past_action] = 0
 					elif self.turn_time<t<=5*self.turn_time:
-						error[past_action] = past_reward + self.gamma*np.max(value) - past_value[past_action] # TD0 update
+						error[past_action] += np.max(value) - past_value[past_action] # TD0 update
+						# error[past_action] = past_reward - past_value[past_action] # TD0 update
+						# error[:] += value
 					elif 5*self.turn_time<t:
-						error[past_action] = past_reward - past_value[past_action] # TD0 update on last turn
+						error[past_action] -= past_value[past_action] # TD0 update on last turn
 					return error
 
 			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=self.n_inputs)
-			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=1)
+			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=n_actions)
 			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=1)
 			explore_input = nengo.Node(lambda t, x: self.explore_input.get(), size_in=2, size_out=n_actions)
 
@@ -886,24 +891,37 @@ class NengoQLearning():
 			learning = PESNode(n_inputs, self.d_critic, self.learning_rate)
 			# critic = nengo.Ensemble(n_actions*n_neurons, n_actions, radius=2)
 			critic = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
-			error = ErrorNode(n_actions, turn_time=self.turn_time, gamma=self.gamma)
+			error = ErrorNode(n_actions, turn_time=self.turn_time)
 			basal_ganglia = nengo.networks.BasalGanglia(n_actions, n_neurons)
 			thalamus = nengo.networks.Thalamus(n_actions, n_neurons)
 			probs = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
+			# current_choice = nengo.networks.Product(n_neurons, n_actions)
+			# past_choice = nengo.networks.Product(n_neurons, n_actions)
 
 			nengo.Connection(state_input, state.neurons, synapse=None)
 			nengo.Connection(state.neurons, learning[:n_inputs], synapse=None)
 			nengo.Connection(state.neurons, learning[n_inputs: 2*self.n_inputs], synapse=self.delay)
 			nengo.Connection(error, learning[2*n_inputs:], synapse=0)
 			nengo.Connection(learning, critic, synapse=None)
-			nengo.Connection(critic, error[:n_actions], synapse=None)
+
+			nengo.Connection(critic, error[:n_actions], transform=self.gamma, synapse=None)
 			nengo.Connection(critic, error[n_actions: 2*n_actions], synapse=self.delay)
-			nengo.Connection(past_action, error[-2], synapse=None)
-			nengo.Connection(past_reward, error[-1], synapse=None)
+			nengo.Connection(past_reward, error[2*n_actions: 3*n_actions], synapse=None)
+			nengo.Connection(past_action, error[-1], synapse=None)
+
 			nengo.Connection(critic, probs, function=lambda x: scipy.special.softmax(30*x), synapse=None)
 			nengo.Connection(probs, basal_ganglia.input, synapse=None)
 			nengo.Connection(explore_input, basal_ganglia.input, synapse=None)  # epsilon random action
 			nengo.Connection(basal_ganglia.output, thalamus.input, synapse=None)
+
+			# nengo.Connection(thalamus.output, current_choice.input_a, synapse=None)
+			# nengo.Connection(critic, current_choice.input_b, synapse=None)
+			# nengo.Connection(current_choice.output, error[:n_actions], transform=self.gamma, synapse=None)
+
+			# nengo.Connection(thalamus.output, past_choice.input_a, synapse=self.delay)
+			# nengo.Connection(critic, past_choice.input_b, synapse=self.delay)
+			# nengo.Connection(past_choice.output, error[n_actions: 2*n_actions], transform=self.gamma, synapse=None)
+
 
 			network.p_input = nengo.Probe(state_input)
 			network.p_state = nengo.Probe(state.neurons)
@@ -922,23 +940,11 @@ class NengoQLearning():
 		probs = self.simulator.data[self.network.p_probs][-1]
 		bg = self.simulator.data[self.network.p_bg][-1]
 		thalamus = self.simulator.data[self.network.p_thalamus][-1]
+		action = np.argmax(thalamus)
 		# print('critic \t', np.around(critic, 2))
 		# print('probs \t', np.around(probs, 2), '\t', np.around(np.sum(probs),2))
 		# print('basal \t', np.around(bg, 2))
-		print('thalam \t', np.around(thalamus, 2))
-		if self.explore_method=='epsilon':
-			# if self.explore_decay_method=='linear':		
-			# 	epsilon = self.explore_start - self.explore_decay*self.episode
-			# if self.rng.uniform(0, 1) < epsilon:
-			# 	action = self.rng.randint(self.n_actions)
-			# else:
-			action = np.argmax(thalamus)
-		elif self.explore_method=='boltzmann':
-			temperature = self.explore*np.exp(-self.explore_decay*self.episode)
-			action_probs = scipy.special.softmax(critic / temperature)
-			action = self.rng.choice(np.arange(self.n_actions), p=action_probs)
-		else:
-			action = torch.argmax(critic)
+		# print('thalam \t', np.around(thalamus, 2))
 		return action
 
 	def move(self, game):
@@ -955,6 +961,7 @@ class NengoQLearning():
 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
 		# save the chosen action for online learning in the next turn
 		self.action_input.set(action_idx)
+		self.reward_input.past_action = action_idx
 		return give, keep
 
 	def learn(self, game):
