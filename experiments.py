@@ -120,7 +120,7 @@ def train_and_test(investors, trustees, learner_plays, n_train, learner_name, op
 		print(f"{learner_name} {learner.ID} vs {opponent_name}")
 		learner.reinitialize(player=learner_plays, ID=learner.ID, seed=learner.seed)
 		for g in range(n_train):
-			# print(f"game {g}")
+			print(f"game {g}")
 			if learner_plays=='investor':
 				dfs = game_loop(learner, trustees[g], train=True, g=g, dfs=dfs)
 			elif learner_plays=='trustee':
@@ -165,14 +165,14 @@ def test_adaptivity(learner_type, n_learners=10, n_train=1000, seed=0, load=Fals
 		gift_investor = [adaptive('investor', 'gift') for _ in range(n_train)]
 		attrition_trustee = [adaptive('trustee', 'attrition') for _ in range(n_train)]
 		attrition_investor = [adaptive('investor', 'attrition') for _ in range(n_train)]
-		dfs.append(train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate"))
+		# dfs.append(train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate"))
 		dfs.append(train_and_test(cooperate_investor, learners, 'trustee', n_train, learner_name, "LearnToCooperate"))
-		dfs.append(train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect"))
-		dfs.append(train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect"))
-		dfs.append(train_and_test(learners, gift_trustee, 'investor', n_train, learner_name, "LearnToGift"))
-		dfs.append(train_and_test(gift_investor, learners, 'trustee', n_train, learner_name, "LearnToGift"))
-		dfs.append(train_and_test(learners, attrition_trustee, 'investor', n_train, learner_name, "LearnToAttrition"))
-		dfs.append(train_and_test(attrition_investor, learners, 'trustee', n_train, learner_name, "LearnToAttrition"))
+		# dfs.append(train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect"))
+		# dfs.append(train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect"))
+		# dfs.append(train_and_test(learners, gift_trustee, 'investor', n_train, learner_name, "LearnToGift"))
+		# dfs.append(train_and_test(gift_investor, learners, 'trustee', n_train, learner_name, "LearnToGift"))
+		# dfs.append(train_and_test(learners, attrition_trustee, 'investor', n_train, learner_name, "LearnToAttrition"))
+		# dfs.append(train_and_test(attrition_investor, learners, 'trustee', n_train, learner_name, "LearnToAttrition"))
 		df = pd.concat(dfs, ignore_index=True)
 		df.to_pickle(f'agent_data/{learner_name}_N={n_learners}_adaptivity.pkl')
 	plot_learning_and_policy_agent_adaptivity(df, learners, learner_type)
