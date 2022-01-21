@@ -865,7 +865,7 @@ class NengoQLearning():
 			class ErrorNode(nengo.Node):
 				def __init__(self, n_actions, turn_time, rng):
 					self.n_actions = n_actions
-					self.size_in = 6*self.n_actions
+					self.size_in = 5*self.n_actions
 					self.size_out = n_actions
 					self.turn_time = turn_time
 					self.rng = rng
@@ -877,24 +877,12 @@ class NengoQLearning():
 					past_value = x[self.n_actions: 2*self.n_actions]  # previous state of the critic
 					past_reward = x[2*self.n_actions: 3*self.n_actions]  # reward associated with past activities
 					past_action = x[3*self.n_actions: 4*self.n_actions]  # action chosen on the previous turn
-					bg = x[4*self.n_actions: 5*self.n_actions]  # action chosen on the previous turn
-					probs = x[5*self.n_actions: 6*self.n_actions]  # action chosen on the previous turn
-					# current_value = np.multiply(value, bg)
-					current_value = value[np.argmax(bg)]
+					thal = x[4*self.n_actions: 5*self.n_actions]  # action chosen on the previous turn
+					current_value = np.sum(np.multiply(value, thal))
+					# print('1', current_value)
+					# current_value = value[np.argmax(thal)]
+					# print('2', current_value)
 					max_value = np.max(value)
-					if len(np.argwhere(bg==np.amax(bg)))>1:
-						print('multiple maxs')
-						print(np.around(value, 2))
-						print(np.around(probs, 2))
-						print(np.around(bg, 2))
-					# elif np.argmax(bg)!=np.argmax(value):
-					# 	print('different maxs')
-					# 	print('bg \t', np.around(bg, 2))
-					# 	print('val \t', np.around(value, 2))
-					elif np.argmax(bg)!=np.argmax(probs):
-						print(f't {t} different maxs')
-						print('bg \t', np.around(bg, 2))
-						print('prob \t', np.around(probs, 2))
 					error = past_reward
 					if 0<t<=self.turn_time:
 						error *= 0
@@ -936,9 +924,7 @@ class NengoQLearning():
 			nengo.Connection(critic, error[n_actions: 2*n_actions], synapse=self.delay)
 			nengo.Connection(past_reward, error[2*n_actions: 3*n_actions], synapse=None)
 			nengo.Connection(past_action, error[3*n_actions: 4*n_actions], synapse=None)
-			# nengo.Connection(thalamus.output, error[4*n_actions: 5*n_actions], synapse=None)
-			nengo.Connection(basal_ganglia.output, error[4*n_actions: 5*n_actions], synapse=None)
-			nengo.Connection(probs, error[5*n_actions: 6*n_actions], synapse=None)
+			nengo.Connection(thalamus.output, error[4*n_actions: 5*n_actions], synapse=None)
 
 			nengo.Connection(critic, probs, function=lambda x: scipy.special.softmax(100*x), synapse=None)
 			# nengo.Connection(explore_input, probs, synapse=None)  # epsilon random action
