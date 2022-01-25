@@ -10,8 +10,8 @@ from utils import *
 class TabularQLearning():
 
 	def __init__(self, player, seed=0, n_actions=11, ID="tabular-q-learning", representation='turn-coin',
-			explore_method='boltzmann', explore_start=30, explore_decay=0.1, explore_decay_method='exponential',
-			learning_method='TD0', learning_rate=1e0, gamma=0.99, lambd=0, randomize=True):
+			explore_method='epsilon', explore_start=1, explore_decay=0.01, explore_decay_method='linear',
+			learning_method='TD0', learning_rate=1e0, gamma=0.99, lambd=0, randomize=False, friendliness=0):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -60,7 +60,7 @@ class TabularQLearning():
 		Q_state = self.Q[game_state]
 		# Sample action from q-values in the current state
 		if self.explore_decay_method == 'linear':
-			explore = np.max([0, self.explore_start - self.explore_decay*self.episode])
+			explore = self.explore_start - self.explore_decay*self.episode
 		elif self.explore_decay_method =='exponential':
 			explore = self.explore_start * np.exp(-self.explore_decay*self.episode)
 		elif self.explore_decay_method == 'power':
@@ -223,8 +223,8 @@ class DeepQLearning():
 			return x
 
 	def __init__(self, player, seed=0, n_actions=11, n_neurons=100, ID="deep-q-learning", representation='turn-coin', 
-			explore_method='epsilon', explore_start=1, explore_decay=0.001, explore_decay_method='linear',
-			learning_method='TD0', randomize=True, friendliness=0, critic_rate=1e-3, gamma=0.9, biased_exploration=False, bias=0.5):
+			explore_method='epsilon', explore_start=1, explore_decay=0.005, explore_decay_method='linear',
+			learning_method='TD0', randomize=False, friendliness=0, critic_rate=1e-1, gamma=0.99, biased_exploration=True, bias=0.5):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -484,10 +484,9 @@ class InstanceBased():
 
 	def __init__(self, player, seed=0, n_actions=11, ID="instance-based", representation='turn-coin',
 			populate_method='state-similarity', value_method='next-value',
-			thr_activation=0, thr_action=0.8, thr_state=0.9, friendliness=0, randomize=True,
-			learning_method='TD0', gamma=0.99, decay=0.5, epsilon=0.3, biased_exploration=True, bias=0.5,
-			# explore_method='epsilon', explore_start=1, explore_decay=0.001, explore_decay_method='linear'):
-			explore_method='epsilon', explore_start=1, explore_decay=0.007, explore_decay_method='linear'):
+			thr_activation=0, thr_action=0.8, thr_state=0.9, friendliness=0, randomize=False,
+			learning_method='TD0', gamma=0.99, decay=0.5, epsilon=0.3, biased_exploration=False, bias=0.5,
+			explore_method='epsilon', explore_start=1, explore_decay=0.005, explore_decay_method='linear'):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -765,8 +764,8 @@ class NengoQLearning():
 			return self.history[-1] if len(self.history)>0 else 0
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-coin',
-			encoder_method='one-hot', learning_rate=1e-6, n_neurons=300, dt=1e-3, turn_time=2e-2, q=10,
-			explore_method='epsilon', explore_start=1, explore_decay=0.01, explore_decay_method='linear',
+			encoder_method='one-hot', learning_rate=6e-7, n_neurons=100, dt=1e-3, turn_time=2e-2, q=10,
+			explore_method='epsilon', explore_start=1, explore_decay=0.005, explore_decay_method='linear',
 			gamma=0.99, friendliness=0):
 		self.player = player
 		self.ID = ID
@@ -825,8 +824,8 @@ class NengoQLearning():
 		network.config[nengo.Ensemble].neuron_type = nengo.LIFRate()
 		network.config[nengo.Connection].seed = seed
 		network.config[nengo.Probe].synapse = None
-		w_inh = -1e5 * np.ones((n_neurons, 1))
-		encoders = self.build_one_hot_encoders(n_actions, n_neurons)
+		w_inh = -1e5 * np.ones((n_neurons*n_actions, 1))
+		encoders = self.build_one_hot_encoders(n_actions, n_neurons*n_actions)
 		intercepts = nengo.dists.Uniform(0.1, 0.1)
 		with network:
 
@@ -859,33 +858,24 @@ class NengoQLearning():
 				def step(self, t, x):
 					n_actions = self.n_actions
 					turn_time = self.turn_time
-					if t % turn_time < 0.5*turn_time:
-						return np.zeros((n_actions))
 					past_value = x[:n_actions]
 					past_reward = x[n_actions: 2*n_actions]
 					next_value = x[2*n_actions: 3*n_actions]
 					error = past_reward + next_value - past_value
 					return error
-					# error = past_reward
-					# if 0<t<=turn_time:
-					# 	error *= 0
-					# elif turn_time<t<=5*turn_time:
-					# 	error += next_value
-					# 	error -= past_value
-					# elif 5*turn_time<t:
-					# 	error -= past_value
-					# return error
 
 			state_input = nengo.Node(lambda t, x: self.state_input.get(), size_in=2, size_out=self.n_inputs)
-			past_reward = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=n_actions)
+			reward_input = nengo.Node(lambda t, x: self.reward_input.get(), size_in=2, size_out=n_actions)
 			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=n_actions)
-			gate_learning = nengo.Node(lambda t: 0 if self.turn_time<t<=5*self.turn_time else 1)
+			gate_learning_one = nengo.Node(lambda t: 0 if self.turn_time < t <= 5*self.turn_time else 1)
+			gate_learning_two = nengo.Node(lambda t: 1 if t % self.turn_time < 0.5*self.turn_time else 0)
 
 			state = nengo.Ensemble(n_inputs, 1, intercepts=intercepts, encoders=nengo.dists.Choice([[1]]))
 			learning = PESNode(n_inputs, self.d_critic, self.learning_rate)
 			critic = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
+			past_reward = nengo.Ensemble(n_neurons*n_actions, n_actions, intercepts=intercepts, encoders=encoders)
 			error = ErrorNode(n_actions, turn_time=self.turn_time, rng=self.rng)
-			basal_ganglia = nengo.networks.BasalGanglia(n_actions, n_neurons, input_bias=0.2)
+			basal_ganglia = nengo.networks.BasalGanglia(n_actions, n_neurons)
 			thalamus = nengo.networks.Thalamus(n_actions, n_neurons)
 			probs = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
 			current_value_product = nengo.networks.Product(1, n_actions)
@@ -893,8 +883,8 @@ class NengoQLearning():
 			current_value_onehot = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
 			current_value_sum = nengo.Ensemble(1, 1, neuron_type=nengo.Direct())
 			current_value_idx = nengo.Ensemble(1, n_actions+1, neuron_type=nengo.Direct())
-			current_value = nengo.Ensemble(n_neurons, n_actions, intercepts=intercepts, encoders=encoders)
-			past_value = nengo.Ensemble(n_neurons, n_actions, intercepts=intercepts, encoders=encoders)
+			current_value = nengo.Ensemble(n_neurons*n_actions, n_actions, intercepts=intercepts, encoders=encoders)
+			past_value = nengo.Ensemble(n_neurons*n_actions, n_actions, intercepts=intercepts, encoders=encoders)
 
 			for ens in basal_ganglia.all_ensembles:
 				ens.neuron_type = nengo.LIFRate()
@@ -906,6 +896,7 @@ class NengoQLearning():
 				ens.neuron_type = nengo.Direct()
 
 			nengo.Connection(state_input, state.neurons, synapse=None)
+			nengo.Connection(reward_input, past_reward, synapse=None)
 			nengo.Connection(state.neurons, learning[:n_inputs], synapse=None)
 			nengo.Connection(state.neurons, learning[n_inputs: 2*self.n_inputs], synapse=self.delay)
 			nengo.Connection(error, learning[2*n_inputs:], synapse=0)
@@ -929,7 +920,10 @@ class NengoQLearning():
 			nengo.Connection(critic, past_value_product.input_b, synapse=self.delay)
 			nengo.Connection(past_value_product.output, past_value, synapse=None)
 			nengo.Connection(current_value_idx, current_value, function=lambda x: self.gamma*x[-1]*x[:-1], synapse=None)
-			nengo.Connection(gate_learning, current_value.neurons, synapse=None, transform=w_inh)
+			nengo.Connection(gate_learning_one, current_value.neurons, synapse=None, transform=w_inh)
+			nengo.Connection(gate_learning_two, current_value.neurons, synapse=None, transform=w_inh)
+			nengo.Connection(gate_learning_two, past_value.neurons, synapse=None, transform=w_inh)
+			nengo.Connection(gate_learning_two, past_reward.neurons, synapse=None, transform=w_inh)
 
 			network.p_input = nengo.Probe(state_input)
 			network.p_state = nengo.Probe(state.neurons)
@@ -959,12 +953,12 @@ class NengoQLearning():
 					action = self.rng.randint(self.n_actions)
 				else:
 					action = np.argmax(thalamus)
-		print('critic \t', np.around(critic, 2))
+		# print('critic \t', np.around(critic, 2))
 		# print('probs \t', np.around(probs, 2), '\t', np.around(np.sum(probs),2))
 		# print('basal \t', np.around(bg, 2))
 		# print('thalam \t', np.around(thalamus, 2))
 		# print('current value \t', np.around(current_value, 2))
-		print('past value \t', np.around(past_value, 2))
+		# print('past value \t', np.around(past_value, 2))
 		return action
 
 	def move(self, game):
