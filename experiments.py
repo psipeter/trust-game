@@ -196,4 +196,4 @@ def test_t4tv(learner_type, n_learners=100, n_train=1000, seed=0, load=False):
 		df = pd.concat(dfs, ignore_index=True)
 		df.to_pickle(f'agent_data/{learner_name}_N={n_learners}_friendliness.pkl')
 	plot_learning_and_policy_agent_friendliness(df, learners, learner_type)
-	plot_learning_and_coins_agent_friendliness(df, learners, learner_type)
+	# plot_learning_and_coins_agent_friendliness(df, learners, learner_type)
