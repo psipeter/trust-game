@@ -764,8 +764,8 @@ class NengoQLearning():
 			return self.history[-1] if len(self.history)>0 else 0
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-coin',
-			encoder_method='one-hot', learning_rate=1e-6, n_neurons=200, dt=1e-3, turn_time=1e-2, q=30,
-			explore_method='epsilon', explore=1, explore_decay=0.007, gamma=0.99, friendliness=0):
+			encoder_method='one-hot', learning_rate=1e-6, n_neurons=300, dt=1e-3, turn_time=1e-2, q=30,
+			explore_method='epsilon', explore=1, explore_decay=0.005, gamma=0.99, friendliness=0):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -809,7 +809,7 @@ class NengoQLearning():
 		encoders = np.zeros((n_neurons, dims))
 		for n in range(n_neurons):
 			d = n % dims
-			encoders[n, d] = [-1,1][self.rng.randint(2)]
+			encoders[n, d] = 1
 		return encoders
 
 	def build_network(self):
@@ -851,10 +851,9 @@ class NengoQLearning():
 			state = nengo.Ensemble(n_inputs, 1, intercepts=intercepts, encoders=nengo.dists.Choice([[1]]))
 			learning = PESNode(n_inputs, self.d_critic, self.learning_rate)
 			critic = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
-			error = nengo.Ensemble(n_neurons*n_actions, n_actions, encoders=encoders)
+			error = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
 			current_value = nengo.Ensemble(1, n_actions+1, neuron_type=nengo.Direct())
-			past_value = nengo.networks.Product(1, n_actions)
-			for ens in past_value.all_ensembles: ens.neuron_type = nengo.Direct()
+			past_value = nengo.Ensemble(1, 2*n_actions, neuron_type=nengo.Direct())
 
 			nengo.Connection(state_input, state.neurons, synapse=None)
 			nengo.Connection(state.neurons, learning[:n_inputs], synapse=None)
@@ -864,11 +863,11 @@ class NengoQLearning():
 
 			nengo.Connection(critic, current_value[0], function=lambda x: np.max(x), synapse=None)
 			nengo.Connection(past_action, current_value[1:], synapse=None)
-			nengo.Connection(critic, past_value.input_a, synapse=self.delay)
-			nengo.Connection(past_action, past_value.input_b, synapse=None)
+			nengo.Connection(critic, past_value[:n_actions], synapse=self.delay)
+			nengo.Connection(past_action, past_value[n_actions:], synapse=None)
 
 			nengo.Connection(current_value, error, function=lambda x: self.gamma*x[0]*x[1:], synapse=None)
-			nengo.Connection(past_value.output, error, transform=-1, synapse=None)
+			nengo.Connection(past_value, error, function=lambda x: -x[:n_actions]*x[n_actions:], synapse=None)
 			nengo.Connection(reward_input, error, synapse=None)
 
 			network.p_input = nengo.Probe(state_input)
