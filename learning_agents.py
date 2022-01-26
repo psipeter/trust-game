@@ -224,7 +224,7 @@ class DeepQLearning():
 
 	def __init__(self, player, seed=0, n_actions=11, n_neurons=200, ID="deep-q-learning", representation='turn-coin', 
 			explore_method='epsilon', explore_start=1, explore_decay=0.005, explore_decay_method='linear',
-			learning_method='TD0', randomize=True, friendliness=0, critic_rate=3e-2, gamma=0.9, biased_exploration=False, bias=0.5):
+			learning_method='TD0', randomize=True, friendliness=0, critic_rate=3e-2, gamma=0.9, biased_exploration=True, bias=0.8):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -233,7 +233,7 @@ class DeepQLearning():
 		if self.randomize:
 			self.gamma = self.rng.uniform(0, 1)
 			self.critic_rate = self.rng.uniform(5e-3, 5e-2)
-			self.friendliness = self.rng.uniform(0, 0.5)
+			self.friendliness = self.rng.uniform(0, 0.4)
 			# if self.player=='investor':
 			# 	if self.rng.uniform(0,1)<0.5: self.friendliness = 0
 			# 	else: self.friendliness = 0.2
@@ -823,6 +823,8 @@ class NengoQLearning():
 		network.config[nengo.Connection].seed = seed
 		network.config[nengo.Probe].synapse = None
 		intercepts = nengo.dists.Uniform(0.1, 0.1)
+		encoders = self.onehot_encoders(n_actions, n_neurons*n_actions)
+		radius = 3
 		with network:
 
 			class PESNode(nengo.Node):
@@ -860,12 +862,14 @@ class NengoQLearning():
 
 			state = nengo.Ensemble(n_inputs, 1, intercepts=intercepts, encoders=nengo.dists.Choice([[1]]))
 			learning = PESNode(n_inputs, self.d_critic, self.learning_rate)
-			critic = nengo.Ensemble(n_neurons*n_actions, n_actions, radius=3, encoders=self.onehot_encoders(n_actions, n_neurons*n_actions))
-			error = nengo.Ensemble(n_neurons*n_actions, n_actions, radius=3, encoders=self.onehot_encoders(n_actions, n_neurons*n_actions))
+			critic = nengo.Ensemble(n_neurons*n_actions, n_actions, radius=radius, encoders=encoders)
+			error = nengo.Ensemble(n_neurons*n_actions, n_actions, radius=radius, encoders=encoders)
+			current_onehot = nengo.networks.Product(n_neurons*n_actions, n_actions)
+			for ens in current_onehot.all_ensembles: ens.radius = radius
+			current_max = nengo.Ensemble(n_actions*n_neurons, n_actions, radius=radius, encoders=encoders)
 			current_value = nengo.Ensemble(1, n_actions+1, neuron_type=nengo.Direct())
-			# current_value = nengo.Ensemble(n_neurons*n_actions, n_actions+1, radius=3)
 			past_value = nengo.networks.Product(n_neurons*n_actions, n_actions)
-			for ens in past_value.all_ensembles: ens.radius = 3
+			for ens in past_value.all_ensembles: ens.radius = radius
 			thalamus = ThalamusNode(n_actions)
 
 			nengo.Connection(state_input, state.neurons, synapse=None)
@@ -874,8 +878,10 @@ class NengoQLearning():
 			nengo.Connection(error, learning[2*n_inputs:], synapse=0)
 			nengo.Connection(learning, critic, synapse=None)
 			nengo.Connection(critic, thalamus, synapse=None)
-			nengo.Connection(learning, current_value[0], function=lambda x: np.max(x), synapse=None)
-			# nengo.Connection(critic, current_value[0], function=lambda x: np.max(x), synapse=None)
+			nengo.Connection(critic, current_onehot.input_a, synapse=None)
+			nengo.Connection(thalamus, current_onehot.input_b, synapse=None)
+			nengo.Connection(current_onehot.output, current_max, synapse=None)
+			nengo.Connection(current_max, current_value[0], function=lambda x: np.sum(x), synapse=None)
 			nengo.Connection(past_action, current_value[1:], synapse=None)
 			nengo.Connection(critic, past_value.input_a, synapse=self.delay)
 			nengo.Connection(past_action, past_value.input_b, synapse=None)
