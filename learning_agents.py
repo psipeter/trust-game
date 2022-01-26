@@ -834,36 +834,19 @@ class NengoQLearning():
 					value = np.dot(activity, self.d)
 					return value
 
-			class ErrorNode(nengo.Node):
-				def __init__(self, n_actions, turn_time):
-					self.n_actions = n_actions
-					self.size_in = 3*n_actions
-					self.size_out = n_actions
-					self.turn_time = turn_time
-					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
-				def step(self, t, x):
-					n_actions = self.n_actions
-					current_value = x[:n_actions]
-					past_value = x[n_actions: 2*n_actions]
-					past_reward = x[2*n_actions: 3*n_actions]
-					error = np.zeros((n_actions))
-					if self.turn_time<t<=5*self.turn_time:
-						error = past_reward + current_value - past_value
-					elif 5*self.turn_time<t:
-						error = past_reward - past_value
-					return error
-
 			class CurrentValueNode(nengo.Node):
-				def __init__(self, n_actions):
+				def __init__(self, n_actions, turn_time):
 					self.n_actions = n_actions
 					self.size_in = n_actions + 1
 					self.size_out = n_actions
+					self.turn_time = turn_time
 					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
 				def step(self, t, x):
 					current_values = x[:n_actions]
 					past_action = int(x[-1])
 					one_hot = np.zeros((self.n_actions))
-					one_hot[past_action] = np.max(current_values)
+					if self.turn_time<t<=5*self.turn_time:
+						one_hot[past_action] = np.max(current_values)
 					return one_hot
 
 			class PastValueNode(nengo.Node):
@@ -885,8 +868,8 @@ class NengoQLearning():
 
 			state = nengo.Ensemble(n_inputs, 1, intercepts=intercepts, encoders=nengo.dists.Choice([[1]]))
 			critic = PESNode(n_inputs, self.d_critic, self.learning_rate)
-			error = ErrorNode(n_actions, turn_time=self.turn_time)
-			current_value = CurrentValueNode(n_actions)
+			error = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
+			current_value = CurrentValueNode(n_actions, self.turn_time)
 			past_value = PastValueNode(n_actions)
 
 			nengo.Connection(state_input, state.neurons, synapse=None)
@@ -899,9 +882,9 @@ class NengoQLearning():
 			nengo.Connection(critic, past_value[:n_actions], synapse=self.delay)
 			nengo.Connection(past_action, past_value[-1], synapse=None)
 
-			nengo.Connection(current_value, error[:n_actions], transform=self.gamma, synapse=None)
-			nengo.Connection(past_value, error[n_actions: 2*n_actions], synapse=None)
-			nengo.Connection(reward_input, error[2*n_actions: 3*n_actions], synapse=None)
+			nengo.Connection(current_value, error, transform=self.gamma, synapse=None)
+			nengo.Connection(past_value, error, transform=-1, synapse=None)
+			nengo.Connection(reward_input, error, synapse=None)
 
 			network.p_input = nengo.Probe(state_input)
 			network.p_state = nengo.Probe(state.neurons)
