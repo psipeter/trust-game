@@ -764,7 +764,7 @@ class NengoQLearning():
 			return self.history[-1] if len(self.history)>0 else 0
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-coin',
-			encoder_method='one-hot', learning_rate=1e-6, n_neurons=100, dt=1e-3, turn_time=1e-2, q=30,
+			encoder_method='one-hot', learning_rate=1e-6, n_neurons=200, dt=1e-3, turn_time=1e-2, q=30,
 			explore_method='epsilon', explore=1, explore_decay=0.007, gamma=0.99, friendliness=0):
 		self.player = player
 		self.ID = ID
@@ -774,12 +774,11 @@ class NengoQLearning():
 		self.n_inputs = get_n_inputs(representation, player, n_actions, extra_turn=1)
 		self.n_actions = n_actions
 		self.n_neurons = n_neurons
-		# self.n_neurons = self.n_inputs
 		self.dt = dt
 		self.encoder_method = encoder_method
 		self.learning_rate = learning_rate
 		self.gamma = gamma
-		self.q = q  # order of LMU
+		self.q = q 
 		self.turn_time = turn_time
 		self.friendliness = friendliness
 		self.explore_method = explore_method
@@ -806,6 +805,13 @@ class NengoQLearning():
 		self.simulator.reset(self.seed)
 		self.episode += 1
 
+	def build_one_hot_encoders(self, dims, n_neurons):
+		encoders = np.zeros((n_neurons, dims))
+		for n in range(n_neurons):
+			d = n % dims
+			encoders[n, d] = [-1,1][self.rng.randint(2)]
+		return encoders
+
 	def build_network(self):
 		n_actions = self.n_actions
 		n_inputs = self.n_inputs
@@ -817,6 +823,7 @@ class NengoQLearning():
 		network.config[nengo.Connection].seed = seed
 		network.config[nengo.Probe].synapse = None
 		intercepts = nengo.dists.Uniform(0.1, 0.1)
+		encoders = self.build_one_hot_encoders(n_actions, n_neurons*n_actions)
 		with network:
 
 			class PESNode(nengo.Node):
@@ -842,16 +849,18 @@ class NengoQLearning():
 			past_action = nengo.Node(lambda t, x: self.action_input.get(), size_in=2, size_out=n_actions)
 
 			state = nengo.Ensemble(n_inputs, 1, intercepts=intercepts, encoders=nengo.dists.Choice([[1]]))
-			critic = PESNode(n_inputs, self.d_critic, self.learning_rate)
-			error = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
+			learning = PESNode(n_inputs, self.d_critic, self.learning_rate)
+			critic = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
+			error = nengo.Ensemble(n_neurons*n_actions, n_actions, encoders=encoders)
 			current_value = nengo.Ensemble(1, n_actions+1, neuron_type=nengo.Direct())
 			past_value = nengo.networks.Product(1, n_actions)
 			for ens in past_value.all_ensembles: ens.neuron_type = nengo.Direct()
 
 			nengo.Connection(state_input, state.neurons, synapse=None)
-			nengo.Connection(state.neurons, critic[:n_inputs], synapse=None)
-			nengo.Connection(state.neurons, critic[n_inputs: 2*n_inputs], synapse=self.delay)
-			nengo.Connection(error, critic[2*n_inputs:], synapse=0)
+			nengo.Connection(state.neurons, learning[:n_inputs], synapse=None)
+			nengo.Connection(state.neurons, learning[n_inputs: 2*n_inputs], synapse=self.delay)
+			nengo.Connection(error, learning[2*n_inputs:], synapse=0)
+			nengo.Connection(learning, critic, synapse=None)
 
 			nengo.Connection(critic, current_value[0], function=lambda x: np.max(x), synapse=None)
 			nengo.Connection(past_action, current_value[1:], synapse=None)
@@ -893,8 +902,6 @@ class NengoQLearning():
 		if not game.train: self.network.error.learning_rate = 0
 		# simulate the network with these inputs and collect the action outputs
 		action = self.simulate_action()
-		# save weights
-		self.d_critic = self.network.critic.d
 		# translate action into environment-appropriate signal
 		self.state = action / (self.n_actions-1)
 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
