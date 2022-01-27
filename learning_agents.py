@@ -485,7 +485,7 @@ class InstanceBased():
 	def __init__(self, player, seed=0, n_actions=11, ID="instance-based", representation='turn-coin',
 			populate_method='state-similarity', value_method='next-value',
 			thr_activation=0, thr_action=0.8, thr_state=0.9, friendliness=0, randomize=True,
-			learning_method='TD0', gamma=0.99, decay=0.5, epsilon=0.3, biased_exploration=True, bias=0.8,
+			learning_method='TD0', gamma=0.99, decay=0.5, epsilon=0.3, biased_exploration=True, bias=0.75,
 			explore_method='epsilon', explore_start=1, explore_decay=0.007, explore_decay_method='linear'):
 		self.player = player
 		self.ID = ID
@@ -498,14 +498,14 @@ class InstanceBased():
 		self.learning_method = learning_method
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = self.rng.uniform(0, 1)
+			self.gamma = self.rng.uniform(0.5, 1)
 			self.decay = self.rng.uniform(0.4, 0.6)
 			self.epsilon = self.rng.uniform(0.2, 0.4)
 			# self.friendliness = self.rng.uniform(0, 0.4)
 			# self.friendliness = 0
 			if self.player=='investor':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.3
+				else: self.friendliness = 0.2
 			elif self.player=='trustee':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
 				else: self.friendliness = 0.3
@@ -926,8 +926,7 @@ class NengoQLearning():
 			nengo.Connection(reward_input, error, synapse=None)
 
 			if self.thalalmus_network:
-				nengo.Connection(critic, softmax, synapse=None)
-				nengo.Connection(softmax, bg.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
+				nengo.Connection(critic, bg.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
 				nengo.Connection(bg.output, thal.input, synapse=None)
 				nengo.Connection(thal.output, cleanup, synapse=None)
 				# nengo.Connection(critic, cleanup, synapse=None)
