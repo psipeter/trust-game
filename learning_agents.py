@@ -223,23 +223,23 @@ class DeepQLearning():
 			return x
 
 	def __init__(self, player, seed=0, n_actions=11, n_neurons=200, ID="deep-q-learning", representation='turn-coin', 
-			explore_method='epsilon', explore_start=1, explore_decay=0.005, explore_decay_method='linear',
-			learning_method='TD0', randomize=True, friendliness=0, critic_rate=3e-2, gamma=0.9, biased_exploration=False, bias=0.8):
+			explore_method='epsilon', explore_start=1, explore_decay=0.007, explore_decay_method='linear',
+			learning_method='TD0', randomize=True, friendliness=0, critic_rate=3e-2, gamma=0.9, biased_exploration=True, bias=0.8):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
 		self.rng = np.random.RandomState(seed=seed)
 		self.randomize = randomize
 		if self.randomize:
-			self.gamma = self.rng.uniform(0, 1)
-			self.critic_rate = self.rng.uniform(5e-3, 5e-2)
-			# self.friendliness = self.rng.uniform(0, 0.4)
+			self.gamma = self.rng.uniform(0.5, 1)
+			self.critic_rate = self.rng.uniform(3e-3, 3e-2)
+			# self.friendliness = self.rng.uniform(0, 0.3)
 			if self.player=='investor':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.2
+				else: self.friendliness = 0.15
 			elif self.player=='trustee':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.4
+				else: self.friendliness = 0.3
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
@@ -486,7 +486,7 @@ class InstanceBased():
 			populate_method='state-similarity', value_method='next-value',
 			thr_activation=0, thr_action=0.8, thr_state=0.9, friendliness=0, randomize=True,
 			learning_method='TD0', gamma=0.99, decay=0.5, epsilon=0.3, biased_exploration=True, bias=0.8,
-			explore_method='epsilon', explore_start=1, explore_decay=0.005, explore_decay_method='linear'):
+			explore_method='epsilon', explore_start=1, explore_decay=0.007, explore_decay_method='linear'):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -501,14 +501,14 @@ class InstanceBased():
 			self.gamma = self.rng.uniform(0, 1)
 			self.decay = self.rng.uniform(0.4, 0.6)
 			self.epsilon = self.rng.uniform(0.2, 0.4)
-			self.friendliness = self.rng.uniform(0, 0.4)
+			# self.friendliness = self.rng.uniform(0, 0.4)
 			# self.friendliness = 0
-			# if self.player=='investor':
-			# 	if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-			# 	else: self.friendliness = 0.2
-			# elif self.player=='trustee':
-			# 	if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-			# 	else: self.friendliness = 0.4
+			if self.player=='investor':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.2
+			elif self.player=='trustee':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.2
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
@@ -762,8 +762,8 @@ class NengoQLearning():
 			return self.history[-1] if len(self.history)>0 else 0
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-coin',
-			encoder_method='one-hot', learning_rate=1e-6, n_neurons=300, dt=1e-3, turn_time=1e-2, q=30,
-			explore_method='epsilon', explore=1, explore_decay=0.005, gamma=0.99, friendliness=0):
+			encoder_method='one-hot', learning_rate=3e-7, n_neurons=300, dt=1e-3, turn_time=2e-2, q=30,
+			explore_method='epsilon', explore=1, explore_decay=0.007, gamma=0.99, friendliness=0):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -901,6 +901,12 @@ class NengoQLearning():
 			for ens in past_value.all_ensembles: ens.radius = radius
 			thalamus = ThalamusNode(n_actions)
 
+			bg = nengo.networks.BasalGanglia(n_actions, n_neurons, input_bias=0)
+			for ens in bg.all_ensembles: ens.neuron_type = nengo.LIFRate()
+			thal = nengo.networks.Thalamus(n_actions, n_neurons)
+			for ens in thal.all_ensembles: ens.neuron_type = nengo.LIFRate()
+			softmax = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
+
 			nengo.Connection(state_input, state.neurons, synapse=None)
 			nengo.Connection(state.neurons, learning[:n_inputs], synapse=None)
 			nengo.Connection(state.neurons, learning[n_inputs: 2*n_inputs], synapse=self.delay)
@@ -918,12 +924,20 @@ class NengoQLearning():
 			nengo.Connection(past_value.output, error, transform=-1, synapse=None)
 			nengo.Connection(reward_input, error, synapse=None)
 
+			nengo.Connection(critic, softmax, synapse=None)
+			nengo.Connection(softmax, bg.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
+			# nengo.Connection(critic, bg.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
+			nengo.Connection(bg.output, thal.input, synapse=None)
+			# nengo.Connection(thal.output, thalamus, synapse=None)
+
 			network.p_input = nengo.Probe(state_input)
 			network.p_state = nengo.Probe(state.neurons)
 			network.p_critic = nengo.Probe(critic)
 			network.p_learning = nengo.Probe(learning)
 			network.p_error = nengo.Probe(error)
 			network.p_thalamus = nengo.Probe(thalamus)
+			network.p_bg = nengo.Probe(bg.output)
+			network.p_thal = nengo.Probe(thal.output)
 			network.p_a = current_value.p_a
 			network.p_b = current_value.p_b
 			network.p_out = current_value.p_out
@@ -937,6 +951,8 @@ class NengoQLearning():
 		critic = self.simulator.data[self.network.p_critic][-1]
 		learning = self.simulator.data[self.network.p_learning][-1]
 		thalamus = self.simulator.data[self.network.p_thalamus][-1]
+		bg = self.simulator.data[self.network.p_bg][-1]
+		thal = self.simulator.data[self.network.p_thal][-1]
 		a = self.simulator.data[self.network.p_a][-1]
 		b = self.simulator.data[self.network.p_b][-1]
 		out = self.simulator.data[self.network.p_out][-1]
@@ -945,12 +961,14 @@ class NengoQLearning():
 			if self.rng.uniform(0, 1) < epsilon:
 				action = self.rng.randint(self.n_actions)
 			else:
-				action = np.argmax(thalamus)
+				# action = np.argmax(thalamus)
+				action = np.argmax(thal)
 		# print('learn', np.around(np.max(np.abs(learning)), 2))
 		# print('criti', np.around(np.max(np.abs(critic)), 2))
-		# print('a', np.around(a, 2))
-		# print('b', np.around(b, 2))
-		# print('out', np.around(out, 2))
+		# print('perfect', np.argmax(thalamus))
+		# print('thalam', np.argmax(thal))
+		# thal_val = np.around(np.max(thal), 2)
+		# print(f'same \t {thal_val}') if np.argmax(thalamus) == np.argmax(thal) else print(f'diff \t {thal_val}')
 		return action
 
 	def move(self, game):
@@ -978,6 +996,7 @@ class NengoQLearning():
 		# Learner and fixed agents will not make any additional moves that are added to the game history,
 		# but the moves recorded on the last turn will be given an opportunity of affect weight update through PES
 		give, keep = self.move(game)
+
 
 
 # class NengoActorCritic():
