@@ -505,10 +505,10 @@ class InstanceBased():
 			# self.friendliness = 0
 			if self.player=='investor':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.2
+				else: self.friendliness = 0.3
 			elif self.player=='trustee':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.2
+				else: self.friendliness = 0.3
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
@@ -762,8 +762,8 @@ class NengoQLearning():
 			return self.history[-1] if len(self.history)>0 else 0
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-coin',
-			encoder_method='one-hot', learning_rate=3e-7, n_neurons=300, dt=1e-3, turn_time=2e-2, q=30,
-			explore_method='epsilon', explore=1, explore_decay=0.007, gamma=0.99, friendliness=0):
+			encoder_method='one-hot', learning_rate=3e-7, n_neurons=300, dt=1e-3, turn_time=3e-2, q=30,
+			explore_method='epsilon', explore=1, explore_decay=0.007, gamma=0.99, friendliness=0, thalalmus_network=True):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -782,6 +782,7 @@ class NengoQLearning():
 		self.explore_method = explore_method
 		self.explore = explore
 		self.explore_decay = explore_decay
+		self.thalalmus_network = thalalmus_network
 		self.state_input = self.StateInput(self.n_inputs)
 		self.reward_input = self.PastRewardInput(self.friendliness, self.n_actions)
 		self.action_input = self.PastActionInput(self.n_actions)
@@ -852,7 +853,7 @@ class NengoQLearning():
 					value = np.dot(activity, self.d)
 					return value
 
-			class ThalamusNode(nengo.Node):
+			class CleanupNode(nengo.Node):
 				def __init__(self, n_actions):
 					self.n_actions = n_actions
 					self.size_in = n_actions
@@ -894,27 +895,27 @@ class NengoQLearning():
 			critic = nengo.Ensemble(n_neurons*n_actions, n_actions, radius=radius, encoders=encoders)
 			error = nengo.Ensemble(n_neurons*n_actions, n_actions, radius=radius, encoders=encoders)
 			current_onehot = nengo.networks.Product(n_neurons*n_actions, n_actions)
-			for ens in current_onehot.all_ensembles: ens.radius = radius
 			current_max = nengo.Ensemble(n_actions*n_neurons, n_actions, radius=radius, encoders=encoders)
 			current_value = ScalarProduct(n_neurons, n_actions, seed, mag=radius)
 			past_value = nengo.networks.Product(n_neurons*n_actions, n_actions)
+			cleanup = CleanupNode(n_actions)
+			for ens in current_onehot.all_ensembles: ens.radius = radius
 			for ens in past_value.all_ensembles: ens.radius = radius
-			thalamus = ThalamusNode(n_actions)
 
-			bg = nengo.networks.BasalGanglia(n_actions, n_neurons, input_bias=0)
-			for ens in bg.all_ensembles: ens.neuron_type = nengo.LIFRate()
-			thal = nengo.networks.Thalamus(n_actions, n_neurons)
-			for ens in thal.all_ensembles: ens.neuron_type = nengo.LIFRate()
-			softmax = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
+			if self.thalalmus_network:
+				softmax = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
+				bg = nengo.networks.BasalGanglia(n_actions, n_neurons, input_bias=0)
+				thal = nengo.networks.Thalamus(n_actions, n_neurons)
+				for ens in bg.all_ensembles: ens.neuron_type = nengo.LIFRate()
+				for ens in thal.all_ensembles: ens.neuron_type = nengo.LIFRate()
 
 			nengo.Connection(state_input, state.neurons, synapse=None)
 			nengo.Connection(state.neurons, learning[:n_inputs], synapse=None)
 			nengo.Connection(state.neurons, learning[n_inputs: 2*n_inputs], synapse=self.delay)
 			nengo.Connection(error, learning[2*n_inputs:], synapse=0)
 			nengo.Connection(learning, critic, synapse=None)
-			nengo.Connection(critic, thalamus, synapse=None)
 			nengo.Connection(critic, current_onehot.input_a, synapse=None)
-			nengo.Connection(thalamus, current_onehot.input_b, synapse=None)
+			nengo.Connection(cleanup, current_onehot.input_b, synapse=None)
 			nengo.Connection(current_onehot.output, current_max, synapse=None)
 			nengo.Connection(current_max, current_value.input_a, function=lambda x: np.sum(x), synapse=None)
 			nengo.Connection(past_action, current_value.input_b, synapse=None)
@@ -924,23 +925,24 @@ class NengoQLearning():
 			nengo.Connection(past_value.output, error, transform=-1, synapse=None)
 			nengo.Connection(reward_input, error, synapse=None)
 
-			nengo.Connection(critic, softmax, synapse=None)
-			nengo.Connection(softmax, bg.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
-			# nengo.Connection(critic, bg.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
-			nengo.Connection(bg.output, thal.input, synapse=None)
-			# nengo.Connection(thal.output, thalamus, synapse=None)
+			if self.thalalmus_network:
+				nengo.Connection(critic, softmax, synapse=None)
+				nengo.Connection(softmax, bg.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
+				nengo.Connection(bg.output, thal.input, synapse=None)
+				nengo.Connection(thal.output, cleanup, synapse=None)
+				# nengo.Connection(critic, cleanup, synapse=None)
+			else:
+				nengo.Connection(critic, cleanup, synapse=None)
 
 			network.p_input = nengo.Probe(state_input)
 			network.p_state = nengo.Probe(state.neurons)
 			network.p_critic = nengo.Probe(critic)
 			network.p_learning = nengo.Probe(learning)
 			network.p_error = nengo.Probe(error)
-			network.p_thalamus = nengo.Probe(thalamus)
-			network.p_bg = nengo.Probe(bg.output)
-			network.p_thal = nengo.Probe(thal.output)
-			network.p_a = current_value.p_a
-			network.p_b = current_value.p_b
-			network.p_out = current_value.p_out
+			network.p_thalamus = nengo.Probe(cleanup)
+			if self.thalalmus_network:
+				network.p_bg = nengo.Probe(bg.output)
+				network.p_thal = nengo.Probe(thal.output)
 			network.critic = critic
 			network.error = error
 
@@ -951,18 +953,15 @@ class NengoQLearning():
 		critic = self.simulator.data[self.network.p_critic][-1]
 		learning = self.simulator.data[self.network.p_learning][-1]
 		thalamus = self.simulator.data[self.network.p_thalamus][-1]
-		bg = self.simulator.data[self.network.p_bg][-1]
-		thal = self.simulator.data[self.network.p_thal][-1]
-		a = self.simulator.data[self.network.p_a][-1]
-		b = self.simulator.data[self.network.p_b][-1]
-		out = self.simulator.data[self.network.p_out][-1]
+		if self.thalalmus_network:
+			bg = self.simulator.data[self.network.p_bg][-1]
+			thal = self.simulator.data[self.network.p_thal][-1]
 		if self.explore_method=='epsilon':
 			epsilon = self.explore - self.explore_decay*self.episode
 			if self.rng.uniform(0, 1) < epsilon:
 				action = self.rng.randint(self.n_actions)
 			else:
-				# action = np.argmax(thalamus)
-				action = np.argmax(thal)
+				action = np.argmax(thalamus)
 		# print('learn', np.around(np.max(np.abs(learning)), 2))
 		# print('criti', np.around(np.max(np.abs(critic)), 2))
 		# print('perfect', np.argmax(thalamus))
