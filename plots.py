@@ -3,6 +3,7 @@ import random
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 palette = sns.color_palette("deep")
 sns.set(context='paper', style='white', font='CMU Serif', rc={'font.size':12, 'mathtext.fontset': 'cm'})
 sns.set_palette(palette)
@@ -145,7 +146,7 @@ sns.set_palette(palette)
 # 	plt.close('all')
 
 
-def plot_learning_and_policy_agent_adaptivity(data, learners, learner_type, thr_friendliness=0.1):
+def plot_learning_and_policy_agent_adaptivity(data, learner_type, thr_friendliness=0.1):
 	n_games = np.max(data['game']) + 1
 	final_games = n_games - int(n_games * 0.1)
 	fig, axes = plt.subplots(nrows=8, ncols=2, figsize=((3, 8.5)))
@@ -155,8 +156,6 @@ def plot_learning_and_policy_agent_adaptivity(data, learners, learner_type, thr_
 	ylim2 = ((0, 1))
 	yticks = ((0, 1))
 	palette = sns.color_palette('deep')
-	greedy_background = '#edffef'
-	generous_background = '#faebe8'
 	xbins = np.arange(5)
 	ybins = np.arange(0, 1.1, 0.2)
 	for i, opponent in enumerate(['cooperate', 'defect', 'gift', 'attrition']):
@@ -190,10 +189,10 @@ def plot_learning_and_policy_agent_adaptivity(data, learners, learner_type, thr_
 	axes[7][1].set(xlabel='turn', xticks=((1,2,3,4,5)))
 	plt.tight_layout()
 	fig.savefig(f'plots/{learner_type}_adaptivity_learning_policy.pdf')
-	fig.savefig(f'plots/{learner_type}_adaptivity_learning_policy.svg')
+	# fig.savefig(f'plots/{learner_type}_adaptivity_learning_policy.svg')
 	plt.close('all')
 
-def plot_learning_and_policy_agent_friendliness(data, learners, learner_type, thr_friendliness=0.1):
+def plot_learning_and_policy_agent_friendliness(data, learner_type, thr_friendliness=0.1):
 	n_games = np.max(data['game']) + 1
 	final_games = n_games - int(n_games * 0.1)
 	fig, axes = plt.subplots(nrows=4, ncols=4, figsize=((6.5, 6.5)))
@@ -203,24 +202,14 @@ def plot_learning_and_policy_agent_friendliness(data, learners, learner_type, th
 	ylim2 = ((0, 1))
 	yticks = ((0, 1))
 	palette = sns.color_palette('deep')
-	greedy_background = '#edffef'
-	generous_background = '#faebe8'
 	xbins = np.arange(5)
 	ybins = np.arange(0, 1.1, 0.2)
 	for i, opponent in enumerate(['GreedyT4T', 'GenerousT4T']):
 		for j, player in enumerate(['investor', 'trustee']):
-			for k, friendliness in enumerate(['self', 'social']):
-				friendliness_group = []
-				for learner in learners:
-					if friendliness=='self' and learner.friendliness<=thr_friendliness:
-					# if friendliness=='self' and learner.fairness<=thr_friendliness:
-						friendliness_group.append(learner.ID)
-					elif friendliness=='social' and learner.friendliness>thr_friendliness:
-					# elif friendliness=='social' and learner.fairness>thr_friendliness:
-						friendliness_group.append(learner.ID)
+			for k, orientation in enumerate(['self', 'social']):
 				ax = axes[2*i+j][2*k]
 				ax2 = axes[2*i+j][2*k+1]
-				plot_color = palette[0] if friendliness=='self' else palette[1]
+				plot_color = palette[0] if orientation=='self' else palette[1]
 				frame_color = palette[3] if opponent=='GreedyT4T' else palette[2]
 				background_color = '' if player=='investor' else '..'
 				ax.fill_between(xlim1, ylim[0], ylim[1], hatch=background_color, edgecolor='#bfbfbf', facecolor='white')
@@ -231,7 +220,10 @@ def plot_learning_and_policy_agent_friendliness(data, learners, learner_type, th
 				for spine in ax2.spines.values():
 					spine.set_linewidth(2)
 					spine.set_edgecolor(frame_color)
-				data_group = data.query('player==@player & opponent_ID==@opponent & ID.isin(@friendliness_group)')
+				if orientation=='self':
+					data_group = data.query('player==@player & opponent_ID==@opponent & friendliness<@thr_friendliness')
+				else:
+					data_group = data.query('player==@player & opponent_ID==@opponent & friendliness>=@thr_friendliness')
 				data_final_group = data_group.query('game>=@final_games').dropna()
 				n_learners = len(data_group['ID'].unique())
 				sns.kdeplot(data=data_group, x='game', y='generosity', color=plot_color,
@@ -251,7 +243,7 @@ def plot_learning_and_policy_agent_friendliness(data, learners, learner_type, th
 	axes[3][3].set(xlabel='turn', xticks=((1,2,3,4,5)))
 	plt.tight_layout()
 	fig.savefig(f'plots/{learner_type}_friendliness_learning_policy.pdf')
-	fig.savefig(f'plots/{learner_type}_friendliness_learning_policy.svg')
+	# fig.savefig(f'plots/{learner_type}_friendliness_learning_policy.svg')
 	plt.close('all')
 
 
@@ -265,22 +257,14 @@ def plot_learning_and_coins_agent_friendliness(data, learners, learner_type, thr
 	ylim2 = ((-3, 31))
 	yticks = ((0, 1))
 	palette = sns.color_palette('deep')
-	greedy_background = '#edffef'
-	generous_background = '#faebe8'
 	xbins = np.arange(5)
 	ybins = np.arange(0, 1.1, 0.2)
 	for i, opponent in enumerate(['GreedyT4T', 'GenerousT4T']):
 		for j, player in enumerate(['investor', 'trustee']):
-			for k, friendliness in enumerate(['self', 'social']):
-				friendliness_group = []
-				for learner in learners:
-					if friendliness=='self' and learner.friendliness<=thr_friendliness:
-						friendliness_group.append(learner.ID)
-					elif friendliness=='social' and learner.friendliness>thr_friendliness:
-						friendliness_group.append(learner.ID)
+			for k, orientation in enumerate(['self', 'social']):
 				ax = axes[2*i+j][2*k]
 				ax2 = axes[2*i+j][2*k+1]
-				plot_color = palette[0] if friendliness=='self' else palette[1]
+				plot_color = palette[0] if orientation=='self' else palette[1]
 				frame_color = palette[3] if opponent=='GreedyT4T' else palette[2]
 				background_color = '' if player=='investor' else '..'
 				ax.fill_between(xlim1, ylim[0], ylim[1], hatch=background_color, edgecolor='#bfbfbf', facecolor='white')
@@ -291,7 +275,10 @@ def plot_learning_and_coins_agent_friendliness(data, learners, learner_type, thr
 				for spine in ax2.spines.values():
 					spine.set_linewidth(2)
 					spine.set_edgecolor(frame_color)
-				data_group = data.query('player==@player & opponent_ID==@opponent & ID.isin(@friendliness_group)')
+				if orientation=='self':
+					data_group = data.query('player==@player & opponent_ID==@opponent & friendliness<@thr_friendliness')
+				else:
+					data_group = data.query('player==@player & opponent_ID==@opponent & friendliness>=@thr_friendliness')					
 				n_learners = len(data_group['ID'].unique())
 				sns.kdeplot(data=data_group, x='game', y='generosity', color=plot_color,
 					bw_method=0.1, levels=6, thresh=0.05, fill=True, ax=ax)
@@ -308,7 +295,7 @@ def plot_learning_and_coins_agent_friendliness(data, learners, learner_type, thr
 	axes[3][3].set(xlabel='turn', xticks=((1, n_games)))
 	plt.tight_layout()
 	fig.savefig(f'plots/{learner_type}_friendliness_learning_coins.pdf')
-	fig.savefig(f'plots/{learner_type}_friendliness_learning_coins.svg')
+	# fig.savefig(f'plots/{learner_type}_friendliness_learning_coins.svg')
 	plt.close('all')
 
 
@@ -362,7 +349,7 @@ def plot_learning_and_policy_human_friendliness(data):
 	axes[3][3].set(xlabel='turn', xticks=((1,2,3,4,5)))
 	plt.tight_layout()
 	fig.savefig(f'plots/human_friendliness_learning_policy.pdf')
-	fig.savefig(f'plots/human_friendliness_learning_policy.svg')
+	# fig.savefig(f'plots/human_friendliness_learning_policy.svg')
 	plt.close('all')
 
 # def plot_learning(data, learner_plays, learner_name, opponent_name, human=False):
@@ -417,3 +404,188 @@ def plot_learning_and_policy_human_friendliness(data):
 # 			axes[i].set(title=metric, xlim=((0, 0.5)), xticks=((0, 0.5)))
 # 	fig.savefig(f'plots/{learner_name}_as_{learner_plays}_versus_{opponent_name}_metrics.pdf')
 # 	plt.close('all')
+
+
+def plot_full_comparison():
+	fig, axes = plt.subplots(nrows=8, ncols=8, figsize=((7, 7)))
+	palette = sns.color_palette('deep')
+	for ax in axes.ravel():
+		ax.set(xticks=(()), yticks=(()), xlabel='', ylabel='')
+
+	def learning_subplot(data, axes, row, col, architecture):
+		plot_color = palette[0] if col in [2,3,6,7] else palette[1]
+		if architecture=='human': frame_color = 'k'
+		if architecture=='dqn': frame_color = palette[3]
+		if architecture=='ibl': frame_color = palette[4]
+		if architecture=='nef': frame_color = palette[5]
+		for spine in axes[row,col].spines.values(): spine.set_edgecolor(frame_color)
+		sns.kdeplot(data=data, x='game', y='generosity', ax=axes[row, col],
+			bw_method=0.1, levels=6, thresh=0.05, fill=True,
+			color=plot_color)
+
+	def policy_subplot(data, axes, row, col, architecture):
+		final_games = 13 if architecture=='human' else 135
+		data_final = data.query('game>=@final_games').dropna()
+		plot_color = palette[0] if col in [2,3,6,7] else palette[1]
+		if architecture=='human': frame_color = 'k'
+		if architecture=='dqn': frame_color = palette[3]
+		if architecture=='ibl': frame_color = palette[4]
+		if architecture=='nef': frame_color = palette[5]
+		for spine in axes[row,col].spines.values(): spine.set_edgecolor(frame_color)
+		sns.histplot(data_final, x='turn', y='generosity', stat='density', ax=axes[row, col],
+			binwidth=[1, 0.2], binrange=[[0,5],[0,1]], thresh=0.05,
+			color=plot_color)
+
+	# human dataset joining
+	# dfs = []
+	# for filename in os.listdir("user_data"):
+	# 	df = pd.read_pickle(f"user_data/{filename}")
+	# 	dfs.append(df)
+	# df = pd.concat([df for df in dfs], ignore_index=True)
+	# df.to_pickle("user_data/all_users.pkl")
+
+	human_data = pd.read_pickle("user_data/all_users.pkl")
+	n_games = np.max(human_data['game']) + 1
+	final_games = n_games - int(n_games * 0.1)
+
+	human_investor_greedyT4T_self = human_data.query('player=="investor" & opponent_ID=="greedyT4T" & orientation=="self"')
+	human_investor_greedyT4T_social = human_data.query('player=="investor" & opponent_ID=="greedyT4T" & orientation=="social"')
+	human_investor_generousT4T_self = human_data.query('player=="investor" & opponent_ID=="generousT4T" & orientation=="self"')
+	human_investor_generousT4T_social = human_data.query('player=="investor" & opponent_ID=="generousT4T" & orientation=="social"')
+	human_trustee_greedyT4T_self = human_data.query('player=="trustee" & opponent_ID=="greedyT4T" & orientation=="self"')
+	human_trustee_greedyT4T_social = human_data.query('player=="trustee" & opponent_ID=="greedyT4T" & orientation=="social"')
+	human_trustee_generousT4T_self = human_data.query('player=="trustee" & opponent_ID=="generousT4T" & orientation=="self"')
+	human_trustee_generousT4T_social = human_data.query('player=="trustee" & opponent_ID=="generousT4T" & orientation=="social"')
+
+	# print(len(human_investor_greedyT4T_self)+\
+	# 	len(human_investor_greedyT4T_social)+\
+	# 	len(human_investor_generousT4T_self)+\
+	# 	len(human_investor_generousT4T_social)+\
+	# 	len(human_trustee_greedyT4T_self)+\
+	# 	len(human_trustee_greedyT4T_social)+\
+	# 	len(human_trustee_generousT4T_self)+\
+	# 	len(human_trustee_generousT4T_social))
+
+	learning_subplot(human_investor_greedyT4T_self, axes, 0, 0, 'human')
+	learning_subplot(human_investor_greedyT4T_social, axes, 0, 2, 'human')
+	learning_subplot(human_trustee_greedyT4T_self, axes, 0, 4, 'human')
+	learning_subplot(human_trustee_greedyT4T_social, axes, 0, 6, 'human')
+	learning_subplot(human_investor_generousT4T_self, axes, 4, 0, 'human')
+	learning_subplot(human_investor_generousT4T_social, axes, 4, 2, 'human')
+	learning_subplot(human_trustee_generousT4T_self, axes, 4, 4, 'human')
+	learning_subplot(human_trustee_generousT4T_social, axes, 4, 6, 'human')
+	policy_subplot(human_investor_greedyT4T_self, axes, 0, 1, 'human')
+	policy_subplot(human_investor_greedyT4T_social, axes, 0, 3, 'human')
+	policy_subplot(human_trustee_greedyT4T_self, axes, 0, 5, 'human')
+	policy_subplot(human_trustee_greedyT4T_social, axes, 0, 7, 'human')
+	policy_subplot(human_investor_generousT4T_self, axes, 4, 1, 'human')
+	policy_subplot(human_investor_generousT4T_social, axes, 4, 3, 'human')
+	policy_subplot(human_trustee_generousT4T_self, axes, 4, 5, 'human')
+	policy_subplot(human_trustee_generousT4T_social, axes, 4, 7, 'human')
+
+	# agent data
+	f_thr = 0.1
+	dqn_data = pd.read_pickle(f'agent_data/DeepQLearning_N=100_friendliness.pkl')
+	ibl_data = pd.read_pickle(f'agent_data/InstanceBased_N=100_friendliness.pkl')
+	nef_data = pd.read_pickle(f'agent_data/NengoQLearning_N=3_friendliness.pkl')
+
+	dqn_investor_greedyT4T_self = dqn_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@f_thr')
+	dqn_investor_greedyT4T_social = dqn_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr')
+	dqn_investor_generousT4T_self = dqn_data.query('player=="investor" & opponent_ID=="GenerousT4T" & friendliness<@f_thr')
+	dqn_investor_generousT4T_social = dqn_data.query('player=="investor" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr')
+	dqn_trustee_greedyT4T_self = dqn_data.query('player=="trustee" & opponent_ID=="GreedyT4T" & friendliness<@f_thr')
+	dqn_trustee_greedyT4T_social = dqn_data.query('player=="trustee" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr')
+	dqn_trustee_generousT4T_self = dqn_data.query('player=="trustee" & opponent_ID=="GenerousT4T" & friendliness<@f_thr')
+	dqn_trustee_generousT4T_social = dqn_data.query('player=="trustee" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr')
+
+	ibl_investor_greedyT4T_self = ibl_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@f_thr')
+	ibl_investor_greedyT4T_social = ibl_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr')
+	ibl_investor_generousT4T_self = ibl_data.query('player=="investor" & opponent_ID=="GenerousT4T" & friendliness<@f_thr')
+	ibl_investor_generousT4T_social = ibl_data.query('player=="investor" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr')
+	ibl_trustee_greedyT4T_self = ibl_data.query('player=="trustee" & opponent_ID=="GreedyT4T" & friendliness<@f_thr')
+	ibl_trustee_greedyT4T_social = ibl_data.query('player=="trustee" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr')
+	ibl_trustee_generousT4T_self = ibl_data.query('player=="trustee" & opponent_ID=="GenerousT4T" & friendliness<@f_thr')
+	ibl_trustee_generousT4T_social = ibl_data.query('player=="trustee" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr')
+
+	nef_investor_greedyT4T_self = nef_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@f_thr')
+	nef_investor_greedyT4T_social = nef_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr')
+	nef_investor_generousT4T_self = nef_data.query('player=="investor" & opponent_ID=="GenerousT4T" & friendliness<@f_thr')
+	nef_investor_generousT4T_social = nef_data.query('player=="investor" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr')
+	nef_trustee_greedyT4T_self = nef_data.query('player=="trustee" & opponent_ID=="GreedyT4T" & friendliness<@f_thr')
+	nef_trustee_greedyT4T_social = nef_data.query('player=="trustee" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr')
+	nef_trustee_generousT4T_self = nef_data.query('player=="trustee" & opponent_ID=="GenerousT4T" & friendliness<@f_thr')
+	nef_trustee_generousT4T_social = nef_data.query('player=="trustee" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr')
+
+	learning_subplot(dqn_investor_greedyT4T_self, axes, 1, 0, 'dqn')
+	learning_subplot(dqn_investor_greedyT4T_social, axes, 1, 2, 'dqn')
+	learning_subplot(dqn_trustee_greedyT4T_self, axes, 1, 4, 'dqn')
+	learning_subplot(dqn_trustee_greedyT4T_social, axes, 1, 6, 'dqn')
+	learning_subplot(dqn_investor_generousT4T_self, axes, 5, 0, 'dqn')
+	learning_subplot(dqn_investor_generousT4T_social, axes, 5, 2, 'dqn')
+	learning_subplot(dqn_trustee_generousT4T_self, axes, 5, 4, 'dqn')
+	learning_subplot(dqn_trustee_generousT4T_social, axes, 5, 6, 'dqn')
+	policy_subplot(dqn_investor_greedyT4T_self, axes, 1, 1, 'dqn')
+	policy_subplot(dqn_investor_greedyT4T_social, axes, 1, 3, 'dqn')
+	policy_subplot(dqn_trustee_greedyT4T_self, axes, 1, 5, 'dqn')
+	policy_subplot(dqn_trustee_greedyT4T_social, axes, 1, 7, 'dqn')
+	policy_subplot(dqn_investor_generousT4T_self, axes, 5, 1, 'dqn')
+	policy_subplot(dqn_investor_generousT4T_social, axes, 5, 3, 'dqn')
+	policy_subplot(dqn_trustee_generousT4T_self, axes, 5, 5, 'dqn')
+	policy_subplot(dqn_trustee_generousT4T_social, axes, 5, 7, 'dqn')
+
+	learning_subplot(ibl_investor_greedyT4T_self, axes, 2, 0, 'ibl')
+	learning_subplot(ibl_investor_greedyT4T_social, axes, 2, 2, 'ibl')
+	learning_subplot(ibl_trustee_greedyT4T_self, axes, 2, 4, 'ibl')
+	learning_subplot(ibl_trustee_greedyT4T_social, axes, 2, 6, 'ibl')
+	learning_subplot(ibl_investor_generousT4T_self, axes, 6, 0, 'ibl')
+	learning_subplot(ibl_investor_generousT4T_social, axes, 6, 2, 'ibl')
+	learning_subplot(ibl_trustee_generousT4T_self, axes, 6, 4, 'ibl')
+	learning_subplot(ibl_trustee_generousT4T_social, axes, 6, 6, 'ibl')
+	policy_subplot(ibl_investor_greedyT4T_self, axes, 2, 1, 'ibl')
+	policy_subplot(ibl_investor_greedyT4T_social, axes, 2, 3, 'ibl')
+	policy_subplot(ibl_trustee_greedyT4T_self, axes, 2, 5, 'ibl')
+	policy_subplot(ibl_trustee_greedyT4T_social, axes, 2, 7, 'ibl')
+	policy_subplot(ibl_investor_generousT4T_self, axes, 6, 1, 'ibl')
+	policy_subplot(ibl_investor_generousT4T_social, axes, 6, 3, 'ibl')
+	policy_subplot(ibl_trustee_generousT4T_self, axes, 6, 5, 'ibl')
+	policy_subplot(ibl_trustee_generousT4T_social, axes, 6, 7, 'ibl')
+
+	learning_subplot(nef_investor_greedyT4T_self, axes, 3, 0, 'nef')
+	learning_subplot(nef_investor_greedyT4T_social, axes, 3, 2, 'nef')
+	learning_subplot(nef_trustee_greedyT4T_self, axes, 3, 4, 'nef')
+	learning_subplot(nef_trustee_greedyT4T_social, axes, 3, 6, 'nef')
+	learning_subplot(nef_investor_generousT4T_self, axes, 7, 0, 'nef')
+	learning_subplot(nef_investor_generousT4T_social, axes, 7, 2, 'nef')
+	learning_subplot(nef_trustee_generousT4T_self, axes, 7, 4, 'nef')
+	learning_subplot(nef_trustee_generousT4T_social, axes, 7, 6, 'nef')
+	policy_subplot(nef_investor_greedyT4T_self, axes, 3, 1, 'nef')
+	policy_subplot(nef_investor_greedyT4T_social, axes, 3, 3, 'nef')
+	policy_subplot(nef_trustee_greedyT4T_self, axes, 3, 5, 'nef')
+	policy_subplot(nef_trustee_greedyT4T_social, axes, 3, 7, 'nef')
+	policy_subplot(nef_investor_generousT4T_self, axes, 7, 1, 'nef')
+	policy_subplot(nef_investor_generousT4T_social, axes, 7, 3, 'nef')
+	policy_subplot(nef_trustee_generousT4T_self, axes, 7, 5, 'nef')
+	policy_subplot(nef_trustee_generousT4T_social, axes, 7, 7, 'nef')
+
+	# axes[0][0].set(yticks=((0, 1)), ylabel='G')
+	# axes[1][0].set(yticks=((0, 1)), ylabel='G')
+	# axes[2][0].set(yticks=((0, 1)), ylabel='G')
+	# axes[3][0].set(yticks=((0, 1)), ylabel='G')
+	# axes[4][0].set(yticks=((0, 1)), ylabel='G')
+	# axes[5][0].set(yticks=((0, 1)), ylabel='G')
+	# axes[6][0].set(yticks=((0, 1)), ylabel='G')
+	# axes[7][0].set(yticks=((0, 1)), ylabel='G')
+
+	# axes[7][0].set(xticks=((1, n_games)), xlabel='game')
+	# axes[7][1].set(xticks=((1, 5)), xlabel='turn')
+	# axes[7][2].set(xticks=((1, n_games)), xlabel='game')
+	# axes[7][3].set(xticks=((1, 5)), xlabel='turn')
+	# axes[7][4].set(xticks=((1, n_games)), xlabel='game')
+	# axes[7][5].set(xticks=((1, 5)), xlabel='turn')
+	# axes[7][6].set(xticks=((1, n_games)), xlabel='game')
+	# axes[7][7].set(xticks=((1, 5)), xlabel='turn')
+
+	plt.tight_layout()
+	fig.savefig(f'plots/full_comparison.pdf')
+	fig.savefig(f'plots/full_comparison.svg')
+	plt.close('all')

@@ -224,7 +224,7 @@ class DeepQLearning():
 
 	def __init__(self, player, seed=0, n_actions=11, n_neurons=200, ID="deep-q-learning", representation='turn-coin', 
 			explore_method='epsilon', explore_start=1, explore_decay=0.007, explore_decay_method='linear',
-			learning_method='TD0', randomize=True, friendliness=0, critic_rate=3e-2, gamma=0.9, biased_exploration=True, bias=0.8):
+			learning_method='TD0', randomize=True, friendliness=0, critic_rate=3e-2, gamma=0.9, biased_exploration=True, bias=0.75):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -236,7 +236,7 @@ class DeepQLearning():
 			# self.friendliness = self.rng.uniform(0, 0.3)
 			if self.player=='investor':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.15
+				else: self.friendliness = 0.2 # 0.15
 			elif self.player=='trustee':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
 				else: self.friendliness = 0.3
@@ -285,7 +285,6 @@ class DeepQLearning():
 		if self.explore_method=='epsilon':
 			if self.rng.uniform(0, 1) < explore:
 				if self.biased_exploration:
-					assert self.n_actions>3
 					biased_actions = [0, int(self.n_actions/2), self.n_actions-1]
 					unbiased_actions = np.delete(np.arange(self.n_actions), biased_actions)
 					if self.rng.uniform(0,1)<self.bias:
@@ -508,7 +507,7 @@ class InstanceBased():
 				else: self.friendliness = 0.2
 			elif self.player=='trustee':
 				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.3
+				else: self.friendliness = 0.4 #0.3
 		else:
 			self.gamma = gamma
 			self.friendliness = friendliness
@@ -625,7 +624,6 @@ class InstanceBased():
 			if self.explore_method=='epsilon':
 				if self.rng.uniform(0, 1) < explore:
 					if self.biased_exploration:
-						assert self.n_actions>3
 						biased_actions = [0, int(self.n_actions/2), self.n_actions-1]
 						unbiased_actions = np.delete(np.arange(self.n_actions), biased_actions)
 						if self.rng.uniform(0,1)<self.bias:
@@ -763,7 +761,8 @@ class NengoQLearning():
 
 	def __init__(self, player, seed=0, n_actions=11, ID="nengo-q-learning", representation='turn-coin',
 			encoder_method='one-hot', learning_rate=3e-7, n_neurons=300, dt=1e-3, turn_time=3e-2, q=30,
-			explore_method='epsilon', explore=1, explore_decay=0.007, gamma=0.99, friendliness=0, thalalmus_network=True):
+			explore_method='epsilon', explore=1, explore_decay=0.007, gamma=0.99, friendliness=0,
+			biased_exploration=True, bias=0.75, thalalmus_network=True, randomize=True):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -774,15 +773,29 @@ class NengoQLearning():
 		self.n_neurons = n_neurons
 		self.dt = dt
 		self.encoder_method = encoder_method
-		self.learning_rate = learning_rate
-		self.gamma = gamma
+		self.randomize = randomize
+		if self.randomize:
+			self.gamma = self.rng.uniform(0.5, 1)
+			self.learning_rate = self.rng.uniform(1e-7, 1e-6)
+			# self.friendliness = self.rng.uniform(0, 0.3)
+			if self.player=='investor':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.2
+			elif self.player=='trustee':
+				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
+				else: self.friendliness = 0.4
+		else:
+			self.gamma = gamma
+			self.friendliness = friendliness
+			self.learning_rate = learning_rate
 		self.q = q 
 		self.turn_time = turn_time
-		self.friendliness = friendliness
 		self.explore_method = explore_method
 		self.explore = explore
 		self.explore_decay = explore_decay
 		self.thalalmus_network = thalalmus_network
+		self.biased_exploration = biased_exploration
+		self.bias = bias
 		self.state_input = self.StateInput(self.n_inputs)
 		self.reward_input = self.PastRewardInput(self.friendliness, self.n_actions)
 		self.action_input = self.PastActionInput(self.n_actions)
@@ -811,14 +824,6 @@ class NengoQLearning():
 			encoders[n, d] = [1,-1][self.rng.randint(2)]
 		return encoders
 
-	def onehot_encoders2(self, dims, n_neurons):
-		encoders = np.zeros((n_neurons, dims+1))
-		for n in range(n_neurons):
-			encoders[n, 0] = [1,-1][self.rng.randint(2)]
-			d = n % dims
-			encoders[n, d+1] = [1,-1][self.rng.randint(2)]
-		return encoders
-
 	def build_network(self):
 		n_actions = self.n_actions
 		n_inputs = self.n_inputs
@@ -831,7 +836,6 @@ class NengoQLearning():
 		network.config[nengo.Probe].synapse = None
 		intercepts = nengo.dists.Uniform(0.1, 0.1)
 		encoders = self.onehot_encoders(n_actions, n_neurons*n_actions)
-		encoders2 = self.onehot_encoders2(n_actions, n_neurons*n_actions)
 		radius = 3
 		with network:
 
@@ -905,9 +909,9 @@ class NengoQLearning():
 			if self.thalalmus_network:
 				softmax = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
 				bg = nengo.networks.BasalGanglia(n_actions, n_neurons, input_bias=0)
-				thal = nengo.networks.Thalamus(n_actions, n_neurons)
+				thalamus = nengo.networks.Thalamus(n_actions, n_neurons)
 				for ens in bg.all_ensembles: ens.neuron_type = nengo.LIFRate()
-				for ens in thal.all_ensembles: ens.neuron_type = nengo.LIFRate()
+				for ens in thalamus.all_ensembles: ens.neuron_type = nengo.LIFRate()
 
 			nengo.Connection(state_input, state.neurons, synapse=None)
 			nengo.Connection(state.neurons, learning[:n_inputs], synapse=None)
@@ -927,9 +931,8 @@ class NengoQLearning():
 
 			if self.thalalmus_network:
 				nengo.Connection(critic, bg.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
-				nengo.Connection(bg.output, thal.input, synapse=None)
-				nengo.Connection(thal.output, cleanup, synapse=None)
-				# nengo.Connection(critic, cleanup, synapse=None)
+				nengo.Connection(bg.output, thalamus.input, synapse=None)
+				nengo.Connection(thalamus.output, cleanup, synapse=None)
 			else:
 				nengo.Connection(critic, cleanup, synapse=None)
 
@@ -938,10 +941,10 @@ class NengoQLearning():
 			network.p_critic = nengo.Probe(critic)
 			network.p_learning = nengo.Probe(learning)
 			network.p_error = nengo.Probe(error)
-			network.p_thalamus = nengo.Probe(cleanup)
+			network.p_cleanup = nengo.Probe(cleanup)
 			if self.thalalmus_network:
 				network.p_bg = nengo.Probe(bg.output)
-				network.p_thal = nengo.Probe(thal.output)
+				network.p_thalamus = nengo.Probe(thalamus.output)
 			network.critic = critic
 			network.error = error
 
@@ -951,22 +954,34 @@ class NengoQLearning():
 		self.simulator.run(self.turn_time, progress_bar=False)
 		critic = self.simulator.data[self.network.p_critic][-1]
 		learning = self.simulator.data[self.network.p_learning][-1]
-		thalamus = self.simulator.data[self.network.p_thalamus][-1]
+		cleanup = self.simulator.data[self.network.p_cleanup][-1]
 		if self.thalalmus_network:
 			bg = self.simulator.data[self.network.p_bg][-1]
-			thal = self.simulator.data[self.network.p_thal][-1]
+			thalamus = self.simulator.data[self.network.p_thalamus][-1]
 		if self.explore_method=='epsilon':
 			epsilon = self.explore - self.explore_decay*self.episode
 			if self.rng.uniform(0, 1) < epsilon:
-				action = self.rng.randint(self.n_actions)
+				if self.biased_exploration:
+					biased_actions = [0, int(self.n_actions/2), self.n_actions-1]
+					unbiased_actions = np.delete(np.arange(self.n_actions), biased_actions)
+					if self.rng.uniform(0,1)<self.bias:
+						action = biased_actions[self.rng.randint(len(biased_actions))]
+					else:
+						action = unbiased_actions[self.rng.randint(len(unbiased_actions))]						
+				else:
+					action = self.rng.randint(self.n_actions)
 			else:
-				action = np.argmax(thalamus)
+				# action = np.argmax(thalamus)
+				action = np.argmax(cleanup)
+		# print('thalamus', self.simulator.data[self.network.p_thalamus][-1])
+		# print('cleanup', self.simulator.data[self.network.p_cleanup][-1])
 		# print('learn', np.around(np.max(np.abs(learning)), 2))
 		# print('criti', np.around(np.max(np.abs(critic)), 2))
 		# print('perfect', np.argmax(thalamus))
 		# print('thalam', np.argmax(thal))
-		# thal_val = np.around(np.max(thal), 2)
-		# print(f'same \t {thal_val}') if np.argmax(thalamus) == np.argmax(thal) else print(f'diff \t {thal_val}')
+		# thal_val = np.around(np.max(thalamus), 2)
+		# print(f'thalamus value \t {np.around(thalamus, 2)}')
+		# print(f'same \t {thal_val}') if np.argmax(cleanup) == np.argmax(thalamus) else print(f'diff \t {thal_val}')
 		return action
 
 	def move(self, game):

@@ -45,72 +45,16 @@ def play_game(game, investor, trustee):
 		investor.learn(game)
 		trustee.learn(game)
 
-def game_loop(investor, trustee, train, g, dfs):
-	columns = ('ID', 'opponent_ID', 'player', 'train', 'game', 'turn', 'generosity', 'coins')
+def game_loop(investor, trustee, learner, train, g, dfs):
+	columns = ('ID', 'opponent_ID', 'player', 'train', 'game', 'turn', 'generosity', 'coins', 'friendliness', 'gamma')
 	game = Game(train=train)
 	play_game(game, investor, trustee)
 	for t in range(game.turns):
-		dfs.append(pd.DataFrame([[investor.ID, trustee.ID, 'investor', train,
-			g, t, game.investor_gen[t], game.investor_reward[t]]], columns=columns))
-		dfs.append(pd.DataFrame([[trustee.ID, investor.ID, 'trustee', train,
-			g, t, game.trustee_gen[t], game.trustee_reward[t]]], columns=columns))
+		dfs.append(pd.DataFrame([[investor.ID, trustee.ID, 'investor', train, g, t,
+			game.investor_gen[t], game.investor_reward[t], learner.friendliness, learner.gamma]], columns=columns))
+		dfs.append(pd.DataFrame([[trustee.ID, investor.ID, 'trustee', train, g, t,
+			game.trustee_gen[t], game.trustee_reward[t], learner.friendliness, learner.gamma]], columns=columns))
 	return dfs
-
-# def play_tournament(investors, trustees, tournament_type, learner_plays, n_train=100, n_test=100, seed=0):
-# 	for investor in investors: assert investor.player == 'investor', "invalid investor assignment"
-# 	for trustee in trustees: assert trustee.player == 'trustee', "invalid trustee assignment"
-# 	rng = np.random.RandomState(seed=seed)
-
-# 	if tournament_type == 'one_game':
-# 		dfs = game_loop(investors[0], trustees[0], train=True, g=0, dfs=[])			
-# 		data = pd.concat([df for df in dfs], ignore_index=True)
-# 		plot_one_game(data)
-
-# 	if tournament_type == 'many_games':
-# 		dfs = []
-# 		for g in range(n_train):
-# 			dfs = game_loop(investors[0], trustees[0], train=True, g=g, dfs=dfs)			
-# 		data = pd.concat([df for df in dfs], ignore_index=True)
-# 		plot_many_games(data, learner_plays=learner_plays, name='many_games')
-
-# 	if tournament_type == 'many_learners_one_opponent':
-# 		dfs = []
-# 		if learner_plays=='investor':
-# 			for investor in investors:
-# 				for g in range(n_train):
-# 					dfs = game_loop(investor, trustees[0], train=True, g=g, dfs=dfs)
-# 				for g in range(n_test):
-# 					dfs = game_loop(investor, trustees[0], train=False, g=g, dfs=dfs)
-# 		if learner_plays=='trustee':
-# 			for trustee in trustees:
-# 				for g in range(n_train):
-# 					dfs = game_loop(investors[0], trustee, train=True, g=g, dfs=dfs)
-# 				for g in range(n_test):
-# 					dfs = game_loop(investors[0], trustee, train=False, g=g, dfs=dfs)
-# 		data = pd.concat([df for df in dfs], ignore_index=True)
-# 		plot_learning(data, learner_plays=learner_plays, name='all')
-# 		plot_policy(data, learner_plays=learner_plays, name='all')
-# 		if learner_plays=='investor':
-# 			metrics_gen, metrics_score = process_data(data, investors)
-# 		if learner_plays=='trustee':
-# 			metrics_gen, metrics_score = process_data(data, trustees)
-# 		plot_metrics(metrics_gen, metrics_score, learner_plays=learner_plays)
-
-# 	if tournament_type == 'many_learners_many_opponents':
-# 		dfs = []
-# 		if learner_plays=='investor':
-# 			for investor in investors:
-# 				for g in range(n_train):
-# 					trustee = rng.choice(trustees)
-# 					dfs = game_loop(investor, trustee, train=True, g=g, dfs=dfs)
-# 		if learner_plays=='trustee':
-# 			for trustee in trustees:
-# 				for g in range(n_train):
-# 					investor = rng.choice(investors)
-# 					dfs = game_loop(investor, trustee, train=True, g=g, dfs=dfs)
-# 		data = pd.concat([df for df in dfs], ignore_index=True)
-# 		plot_learning(data, learner_plays=learner_plays, name='all')
-# 		plot_policy(data, learner_plays=learner_plays, name='all')
 
 def train_and_test(investors, trustees, learner_plays, n_train, learner_name, opponent_name):
 	learners = investors if learner_plays=='investor' else trustees
@@ -120,11 +64,11 @@ def train_and_test(investors, trustees, learner_plays, n_train, learner_name, op
 		print(f"{learner_name} {learner.ID} vs {opponent_name}")
 		learner.reinitialize(player=learner_plays, ID=learner.ID, seed=learner.seed)
 		for g in range(n_train):
-			print(f"game {g}")
+			# print(f"game {g}")
 			if learner_plays=='investor':
-				dfs = game_loop(learner, trustees[g], train=True, g=g, dfs=dfs)
+				dfs = game_loop(learner, trustees[g], learner, train=True, g=g, dfs=dfs)
 			elif learner_plays=='trustee':
-				dfs = game_loop(investors[g], learner, train=True, g=g, dfs=dfs)
+				dfs = game_loop(investors[g], learner, learner, train=True, g=g, dfs=dfs)
 	data = pd.concat([df for df in dfs], ignore_index=True)
 	return data
 	# if learner_plays=='investor':
@@ -167,16 +111,16 @@ def test_adaptivity(learner_type, n_learners=10, n_train=1000, seed=0, load=Fals
 		attrition_investor = [adaptive('investor', 'attrition') for _ in range(n_train)]
 		dfs.append(train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate"))
 		dfs.append(train_and_test(cooperate_investor, learners, 'trustee', n_train, learner_name, "LearnToCooperate"))
-		# dfs.append(train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect"))
-		# dfs.append(train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect"))
-		# dfs.append(train_and_test(learners, gift_trustee, 'investor', n_train, learner_name, "LearnToGift"))
-		# dfs.append(train_and_test(gift_investor, learners, 'trustee', n_train, learner_name, "LearnToGift"))
-		# dfs.append(train_and_test(learners, attrition_trustee, 'investor', n_train, learner_name, "LearnToAttrition"))
-		# dfs.append(train_and_test(attrition_investor, learners, 'trustee', n_train, learner_name, "LearnToAttrition"))
+		dfs.append(train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect"))
+		dfs.append(train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect"))
+		dfs.append(train_and_test(learners, gift_trustee, 'investor', n_train, learner_name, "LearnToGift"))
+		dfs.append(train_and_test(gift_investor, learners, 'trustee', n_train, learner_name, "LearnToGift"))
+		dfs.append(train_and_test(learners, attrition_trustee, 'investor', n_train, learner_name, "LearnToAttrition"))
+		dfs.append(train_and_test(attrition_investor, learners, 'trustee', n_train, learner_name, "LearnToAttrition"))
 		df = pd.concat(dfs, ignore_index=True)
 		df.to_pickle(f'agent_data/{learner_name}_N={n_learners}_adaptivity.pkl')
-	plot_learning_and_policy_agent_adaptivity(df, learners, learner_type)
-	# plot_learning_and_coins_agent_adaptivity(df, learners, learner_type)
+	plot_learning_and_policy_agent_adaptivity(df, learner_type)
+	# plot_learning_and_coins_agent_adaptivity(df, learner_type)
 
 def test_t4tv(learner_type, n_learners=100, n_train=1000, seed=0, load=False):
 	learners = make_learners(learner_type, seed, n_learners)
@@ -195,5 +139,5 @@ def test_t4tv(learner_type, n_learners=100, n_train=1000, seed=0, load=False):
 		dfs.append(train_and_test(generous_investor, learners, 'trustee', n_train, learner_name, "GenerousT4T"))
 		df = pd.concat(dfs, ignore_index=True)
 		df.to_pickle(f'agent_data/{learner_name}_N={n_learners}_friendliness.pkl')
-	plot_learning_and_policy_agent_friendliness(df, learners, learner_type)
-	# plot_learning_and_coins_agent_friendliness(df, learners, learner_type)
+	plot_learning_and_policy_agent_friendliness(df, learner_type)
+	# plot_learning_and_coins_agent_friendliness(df, learner_type)
