@@ -117,7 +117,7 @@ def test_human_generosity():
 	print(f"mean for self-oriented={np.mean(human_self['generosity'].to_numpy()):.2} \t mean for socially-oriented={np.mean(human_social['generosity'].to_numpy()):.2}")
 
 
-def test_human_returns():
+def test_human_behaviors():
 	human_data = pd.read_pickle("user_data/all_users.pkl")
 	final_games = [12,13,14]
 
@@ -142,7 +142,7 @@ def test_human_returns():
 # test_human_learning()
 # test_human_orientation()
 # test_human_generosity()
-# test_human_returns()
+# test_human_behaviors()
 
 
 
@@ -153,7 +153,7 @@ def test_agent_learning():
 	f_thr = 0.1
 	dqn_data = pd.read_pickle(f'agent_data/DeepQLearning_N=100_friendliness.pkl')
 	ibl_data = pd.read_pickle(f'agent_data/InstanceBased_N=100_friendliness.pkl')
-	nef_data = pd.read_pickle(f'agent_data/NengoQLearning_N=3_friendliness.pkl')
+	nef_data = pd.read_pickle(f'agent_data/NengoQLearning_N=100_friendliness.pkl')
 
 	dqn_investor_greedyT4T_self = dqn_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').drop_na()
 	dqn_investor_greedyT4T_social = dqn_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').drop_na()
@@ -322,7 +322,7 @@ def test_entropy_model_human():
 	f_thr = 0.1
 	dqn_data = pd.read_pickle(f'agent_data/DeepQLearning_N=100_friendliness.pkl')
 	ibl_data = pd.read_pickle(f'agent_data/InstanceBased_N=100_friendliness.pkl')
-	nef_data = pd.read_pickle(f'agent_data/NengoQLearning_N=3_friendliness.pkl')
+	nef_data = pd.read_pickle(f'agent_data/NengoQLearning_N=100_friendliness.pkl')
 
 	dqn_investor_greedyT4T_self = dqn_data.query('game in @final_games & player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').dropna()
 	dqn_investor_greedyT4T_social = dqn_data.query('game in @final_games & player=="investor" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').dropna()
@@ -391,9 +391,9 @@ def test_entropy_model_human():
 	print(f"NEF: {entropy(nef_investor_greedyT4T_social_prob_dist, human_investor_greedyT4T_social_prob_dist):.3}")
 
 	print("Investor plays GenerousT4T, self-oriented")
-	print(f"DQN: {entropy(dqn_investor_greedyT4T_self_prob_dist, human_investor_greedyT4T_self_prob_dist):.3}")
-	print(f"IBL: {entropy(ibl_investor_greedyT4T_self_prob_dist, human_investor_greedyT4T_self_prob_dist):.3}")
-	print(f"NEF: {entropy(nef_investor_greedyT4T_self_prob_dist, human_investor_greedyT4T_self_prob_dist):.3}")
+	print(f"DQN: {entropy(dqn_investor_generousT4T_self_prob_dist, human_investor_generousT4T_self_prob_dist):.3}")
+	print(f"IBL: {entropy(ibl_investor_generousT4T_self_prob_dist, human_investor_generousT4T_self_prob_dist):.3}")
+	print(f"NEF: {entropy(nef_investor_generousT4T_self_prob_dist, human_investor_generousT4T_self_prob_dist):.3}")
 
 	print("Investor plays GenerousT4T, socially-oriented")
 	print(f"DQN: {entropy(dqn_investor_generousT4T_social_prob_dist, human_investor_generousT4T_social_prob_dist):.3}")
@@ -411,16 +411,244 @@ def test_entropy_model_human():
 	print(f"NEF: {entropy(nef_trustee_greedyT4T_social_prob_dist, human_trustee_greedyT4T_social_prob_dist):.3}")
 
 	print("Trustee plays GenerousT4T, self-oriented")
-	print(f"DQN: {entropy(dqn_trustee_greedyT4T_self_prob_dist, human_trustee_greedyT4T_self_prob_dist):.3}")
-	print(f"IBL: {entropy(ibl_trustee_greedyT4T_self_prob_dist, human_trustee_greedyT4T_self_prob_dist):.3}")
-	print(f"NEF: {entropy(nef_trustee_greedyT4T_self_prob_dist, human_trustee_greedyT4T_self_prob_dist):.3}")
+	print(f"DQN: {entropy(dqn_trustee_generousT4T_self_prob_dist, human_trustee_generousT4T_self_prob_dist):.3}")
+	print(f"IBL: {entropy(ibl_trustee_generousT4T_self_prob_dist, human_trustee_generousT4T_self_prob_dist):.3}")
+	print(f"NEF: {entropy(nef_trustee_generousT4T_self_prob_dist, human_trustee_generousT4T_self_prob_dist):.3}")
 
 	print("Trustee plays GenerousT4T, socially-oriented")
 	print(f"DQN: {entropy(dqn_trustee_generousT4T_social_prob_dist, human_trustee_generousT4T_social_prob_dist):.3}")
 	print(f"IBL: {entropy(ibl_trustee_generousT4T_social_prob_dist, human_trustee_generousT4T_social_prob_dist):.3}")
 	print(f"NEF: {entropy(nef_trustee_generousT4T_social_prob_dist, human_trustee_generousT4T_social_prob_dist):.3}")
 
+	dqn_list = [
+		entropy(dqn_investor_greedyT4T_self_prob_dist, human_investor_greedyT4T_self_prob_dist),
+		entropy(dqn_investor_greedyT4T_social_prob_dist, human_investor_greedyT4T_social_prob_dist),
+		entropy(dqn_investor_generousT4T_self_prob_dist, human_investor_generousT4T_self_prob_dist),
+		entropy(dqn_investor_generousT4T_social_prob_dist, human_investor_generousT4T_social_prob_dist),
+		entropy(dqn_trustee_greedyT4T_self_prob_dist, human_trustee_greedyT4T_self_prob_dist),
+		entropy(dqn_trustee_greedyT4T_social_prob_dist, human_trustee_greedyT4T_social_prob_dist),
+		entropy(dqn_trustee_generousT4T_self_prob_dist, human_trustee_generousT4T_self_prob_dist),
+		entropy(dqn_trustee_generousT4T_social_prob_dist, human_trustee_generousT4T_social_prob_dist)]
+	print(f"\nDQN similarity to human data across 8 groups: mean={np.mean(dqn_list):.3}, std={np.std(dqn_list):.3}")
+
+	ibl_list = [
+		entropy(ibl_investor_greedyT4T_self_prob_dist, human_investor_greedyT4T_self_prob_dist),
+		entropy(ibl_investor_greedyT4T_social_prob_dist, human_investor_greedyT4T_social_prob_dist),
+		entropy(ibl_investor_generousT4T_self_prob_dist, human_investor_generousT4T_self_prob_dist),
+		entropy(ibl_investor_generousT4T_social_prob_dist, human_investor_generousT4T_social_prob_dist),
+		entropy(ibl_trustee_greedyT4T_self_prob_dist, human_trustee_greedyT4T_self_prob_dist),
+		entropy(ibl_trustee_greedyT4T_social_prob_dist, human_trustee_greedyT4T_social_prob_dist),
+		entropy(ibl_trustee_generousT4T_self_prob_dist, human_trustee_generousT4T_self_prob_dist),
+		entropy(ibl_trustee_generousT4T_social_prob_dist, human_trustee_generousT4T_social_prob_dist)]
+	print(f"\nIBL similarity to human data across 8 groups: mean={np.mean(ibl_list):.3}, std={np.std(ibl_list):.3}")
+
+	nef_list = [
+		entropy(nef_investor_greedyT4T_self_prob_dist, human_investor_greedyT4T_self_prob_dist),
+		entropy(nef_investor_greedyT4T_social_prob_dist, human_investor_greedyT4T_social_prob_dist),
+		entropy(nef_investor_generousT4T_self_prob_dist, human_investor_generousT4T_self_prob_dist),
+		entropy(nef_investor_generousT4T_social_prob_dist, human_investor_generousT4T_social_prob_dist),
+		entropy(nef_trustee_greedyT4T_self_prob_dist, human_trustee_greedyT4T_self_prob_dist),
+		entropy(nef_trustee_greedyT4T_social_prob_dist, human_trustee_greedyT4T_social_prob_dist),
+		entropy(nef_trustee_generousT4T_self_prob_dist, human_trustee_generousT4T_self_prob_dist),
+		entropy(nef_trustee_generousT4T_social_prob_dist, human_trustee_generousT4T_social_prob_dist)]
+	print(f"\nNEF similarity to human data across 8 groups: mean={np.mean(nef_list):.3}, std={np.std(nef_list):.3}")
+
+	dqn_list = [
+		entropy(dqn_investor_greedyT4T_self_prob_dist, human_investor_greedyT4T_self_prob_dist),
+		entropy(dqn_investor_greedyT4T_social_prob_dist, human_investor_greedyT4T_social_prob_dist),
+		entropy(dqn_investor_generousT4T_self_prob_dist, human_investor_generousT4T_self_prob_dist),
+		entropy(dqn_investor_generousT4T_social_prob_dist, human_investor_generousT4T_social_prob_dist)]
+	print(f"\nDQN similarity to human data across investor groups: mean={np.mean(dqn_list):.3}, std={np.std(dqn_list):.3}")
+
+	ibl_list = [
+		entropy(ibl_investor_greedyT4T_self_prob_dist, human_investor_greedyT4T_self_prob_dist),
+		entropy(ibl_investor_greedyT4T_social_prob_dist, human_investor_greedyT4T_social_prob_dist),
+		entropy(ibl_investor_generousT4T_self_prob_dist, human_investor_generousT4T_self_prob_dist),
+		entropy(ibl_investor_generousT4T_social_prob_dist, human_investor_generousT4T_social_prob_dist)]
+	print(f"\nIBL similarity to human data across investor groups: mean={np.mean(ibl_list):.3}, std={np.std(ibl_list):.3}")
+
+	nef_list = [
+		entropy(nef_investor_greedyT4T_self_prob_dist, human_investor_greedyT4T_self_prob_dist),
+		entropy(nef_investor_greedyT4T_social_prob_dist, human_investor_greedyT4T_social_prob_dist),
+		entropy(nef_investor_generousT4T_self_prob_dist, human_investor_generousT4T_self_prob_dist),
+		entropy(nef_investor_generousT4T_social_prob_dist, human_investor_generousT4T_social_prob_dist)]
+	print(f"\nNEF similarity to human data across investor groups: mean={np.mean(nef_list):.3}, std={np.std(nef_list):.3}")
+
+	dqn_list = [
+		entropy(dqn_trustee_greedyT4T_self_prob_dist, human_trustee_greedyT4T_self_prob_dist),
+		entropy(dqn_trustee_greedyT4T_social_prob_dist, human_trustee_greedyT4T_social_prob_dist),
+		entropy(dqn_trustee_generousT4T_self_prob_dist, human_trustee_generousT4T_self_prob_dist),
+		entropy(dqn_trustee_generousT4T_social_prob_dist, human_trustee_generousT4T_social_prob_dist)]
+	print(f"\nDQN similarity to human data across trustee groups: mean={np.mean(dqn_list):.3}, std={np.std(dqn_list):.3}")
+
+	ibl_list = [
+		entropy(ibl_trustee_greedyT4T_self_prob_dist, human_trustee_greedyT4T_self_prob_dist),
+		entropy(ibl_trustee_greedyT4T_social_prob_dist, human_trustee_greedyT4T_social_prob_dist),
+		entropy(ibl_trustee_generousT4T_self_prob_dist, human_trustee_generousT4T_self_prob_dist),
+		entropy(ibl_trustee_generousT4T_social_prob_dist, human_trustee_generousT4T_social_prob_dist)]
+	print(f"\nIBL similarity to human data across trustee groups: mean={np.mean(ibl_list):.3}, std={np.std(ibl_list):.3}")
+
+	nef_list = [
+		entropy(nef_trustee_greedyT4T_self_prob_dist, human_trustee_greedyT4T_self_prob_dist),
+		entropy(nef_trustee_greedyT4T_social_prob_dist, human_trustee_greedyT4T_social_prob_dist),
+		entropy(nef_trustee_generousT4T_self_prob_dist, human_trustee_generousT4T_self_prob_dist),
+		entropy(nef_trustee_generousT4T_social_prob_dist, human_trustee_generousT4T_social_prob_dist)]
+	print(f"\nNEF similarity to human data across trustee groups: mean={np.mean(nef_list):.3}, std={np.std(nef_list):.3}")
+
+def test_agent_orientation():
+	final_games = [140,141,142,143,144,145,146,147,148,149]
+	f_thr = 0.1
+	dqn_data = pd.read_pickle(f'agent_data/DeepQLearning_N=100_friendliness.pkl')
+	ibl_data = pd.read_pickle(f'agent_data/InstanceBased_N=100_friendliness.pkl')
+	nef_data = pd.read_pickle(f'agent_data/NengoQLearning_N=100_friendliness.pkl')
+
+	dqn_investor_greedyT4T_self = dqn_data.query('game in @final_games & player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').dropna()
+	dqn_investor_greedyT4T_social = dqn_data.query('game in @final_games & player=="investor" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').dropna()
+	dqn_investor_generousT4T_self = dqn_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness<@f_thr').dropna()
+	dqn_investor_generousT4T_social = dqn_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr').dropna()
+	dqn_trustee_greedyT4T_self = dqn_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').dropna()
+	dqn_trustee_greedyT4T_social = dqn_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').dropna()
+	dqn_trustee_generousT4T_self = dqn_data.query('game in @final_games & player=="trustee" & opponent_ID=="GenerousT4T" & friendliness<@f_thr').dropna()
+	dqn_trustee_generousT4T_social = dqn_data.query('game in @final_games & player=="trustee" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr').dropna()
+
+	ibl_investor_greedyT4T_self = ibl_data.query('game in @final_games & player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').dropna()
+	ibl_investor_greedyT4T_social = ibl_data.query('game in @final_games & player=="investor" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').dropna()
+	ibl_investor_generousT4T_self = ibl_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness<@f_thr').dropna()
+	ibl_investor_generousT4T_social = ibl_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr').dropna()
+	ibl_trustee_greedyT4T_self = ibl_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').dropna()
+	ibl_trustee_greedyT4T_social = ibl_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').dropna()
+	ibl_trustee_generousT4T_self = ibl_data.query('game in @final_games & player=="trustee" & opponent_ID=="GenerousT4T" & friendliness<@f_thr').dropna()
+	ibl_trustee_generousT4T_social = ibl_data.query('game in @final_games & player=="trustee" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr').dropna()
+
+	nef_investor_greedyT4T_self = nef_data.query('game in @final_games & player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').dropna()
+	nef_investor_greedyT4T_social = nef_data.query('game in @final_games & player=="investor" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').dropna()
+	nef_investor_generousT4T_self = nef_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness<@f_thr').dropna()
+	nef_investor_generousT4T_social = nef_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr').dropna()
+	nef_trustee_greedyT4T_self = nef_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').dropna()
+	nef_trustee_greedyT4T_social = nef_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').dropna()
+	nef_trustee_generousT4T_self = nef_data.query('game in @final_games & player=="trustee" & opponent_ID=="GenerousT4T" & friendliness<@f_thr').dropna()
+	nef_trustee_generousT4T_social = nef_data.query('game in @final_games & player=="trustee" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr').dropna()
+
+
+	print("\nIs the final distribution of generosities different for friendly versus unfriendly agents?")
+	print("Run a two-sample Kolmogorov-Smirnov on these distributions, report KS statistic and p_value")
+
+	ksval_investor_greedyT4T, pval_investor_greedyT4T = ks_2samp(
+		dqn_investor_greedyT4T_self['generosity'].to_numpy(),
+		dqn_investor_greedyT4T_social['generosity'].to_numpy())
+	ksval_investor_generousT4T, pval_investor_generousT4T = ks_2samp(
+		dqn_investor_generousT4T_self['generosity'].to_numpy(),
+		dqn_investor_generousT4T_social['generosity'].to_numpy())
+	ksval_trustee_greedyT4T, pval_trustee_greedyT4T = ks_2samp(
+		dqn_trustee_greedyT4T_self['generosity'].to_numpy(),
+		dqn_trustee_greedyT4T_social['generosity'].to_numpy())
+	ksval_trustee_generousT4T, pval_trustee_generousT4T = ks_2samp(
+		dqn_trustee_generousT4T_self['generosity'].to_numpy(),
+		dqn_trustee_generousT4T_social['generosity'].to_numpy())
+
+	print("\nDQN")
+	print(f"Investor vs GreedyT4T: \t \t KS={ksval_investor_greedyT4T:.4}, p={pval_investor_greedyT4T:.4}")
+	print(f"Investor vs GenerousT4T: \t KS={ksval_investor_generousT4T:.4}, p={pval_investor_generousT4T:.4}")
+	print(f"Trustee vs GreedyT4T: \t \t KS={ksval_trustee_greedyT4T:.4}, p={pval_trustee_greedyT4T:.4}")
+	print(f"Trustee vs GenerousT4T: \t KS={ksval_trustee_generousT4T:.4}, p={pval_trustee_generousT4T:.4}")
+
+	ksval_investor_greedyT4T, pval_investor_greedyT4T = ks_2samp(
+		ibl_investor_greedyT4T_self['generosity'].to_numpy(),
+		ibl_investor_greedyT4T_social['generosity'].to_numpy())
+	ksval_investor_generousT4T, pval_investor_generousT4T = ks_2samp(
+		ibl_investor_generousT4T_self['generosity'].to_numpy(),
+		ibl_investor_generousT4T_social['generosity'].to_numpy())
+	ksval_trustee_greedyT4T, pval_trustee_greedyT4T = ks_2samp(
+		ibl_trustee_greedyT4T_self['generosity'].to_numpy(),
+		ibl_trustee_greedyT4T_social['generosity'].to_numpy())
+	ksval_trustee_generousT4T, pval_trustee_generousT4T = ks_2samp(
+		ibl_trustee_generousT4T_self['generosity'].to_numpy(),
+		ibl_trustee_generousT4T_social['generosity'].to_numpy())
+
+	print("\nIBL")
+	print(f"Investor vs GreedyT4T: \t \t KS={ksval_investor_greedyT4T:.4}, p={pval_investor_greedyT4T:.4}")
+	print(f"Investor vs GenerousT4T: \t KS={ksval_investor_generousT4T:.4}, p={pval_investor_generousT4T:.4}")
+	print(f"Trustee vs GreedyT4T: \t \t KS={ksval_trustee_greedyT4T:.4}, p={pval_trustee_greedyT4T:.4}")
+	print(f"Trustee vs GenerousT4T: \t KS={ksval_trustee_generousT4T:.4}, p={pval_trustee_generousT4T:.4}")
+
+	ksval_investor_greedyT4T, pval_investor_greedyT4T = ks_2samp(
+		nef_investor_greedyT4T_self['generosity'].to_numpy(),
+		nef_investor_greedyT4T_social['generosity'].to_numpy())
+	ksval_investor_generousT4T, pval_investor_generousT4T = ks_2samp(
+		nef_investor_generousT4T_self['generosity'].to_numpy(),
+		nef_investor_generousT4T_social['generosity'].to_numpy())
+	ksval_trustee_greedyT4T, pval_trustee_greedyT4T = ks_2samp(
+		nef_trustee_greedyT4T_self['generosity'].to_numpy(),
+		nef_trustee_greedyT4T_social['generosity'].to_numpy())
+	ksval_trustee_generousT4T, pval_trustee_generousT4T = ks_2samp(
+		nef_trustee_generousT4T_self['generosity'].to_numpy(),
+		nef_trustee_generousT4T_social['generosity'].to_numpy())
+
+	print("\nNEF")
+	print(f"Investor vs GreedyT4T: \t \t KS={ksval_investor_greedyT4T:.4}, p={pval_investor_greedyT4T:.4}")
+	print(f"Investor vs GenerousT4T: \t KS={ksval_investor_generousT4T:.4}, p={pval_investor_generousT4T:.4}")
+	print(f"Trustee vs GreedyT4T: \t \t KS={ksval_trustee_greedyT4T:.4}, p={pval_trustee_greedyT4T:.4}")
+	print(f"Trustee vs GenerousT4T: \t KS={ksval_trustee_generousT4T:.4}, p={pval_trustee_generousT4T:.4}")
+
+
+
+def test_agent_behaviors():
+	human_data = pd.read_pickle("user_data/all_users.pkl")
+	final_games = [12,13,14]
+
+	human_investor_generousT4T_self = human_data.query('game in @final_games & player=="investor" & opponent_ID=="generousT4T" & orientation=="self"').dropna()
+	human_investor_generousT4T_social = human_data.query('game in @final_games & player=="investor" & opponent_ID=="generousT4T" & orientation=="social"').dropna()
+	human_trustee_greedyT4T_self = human_data.query('game in @final_games & player=="trustee" & opponent_ID=="greedyT4T" & orientation=="self"').dropna()
+	human_trustee_greedyT4T_social = human_data.query('game in @final_games & player=="trustee" & opponent_ID=="greedyT4T" & orientation=="social"').dropna()
+
+	human_investor_generousT4T_self_percent = human_investor_generousT4T_self.query('generosity==1').size / human_investor_generousT4T_self.size
+	human_investor_generousT4T_social_percent = human_investor_generousT4T_social.query('generosity==1').size / human_investor_generousT4T_social.size
+	human_trustee_greedyT4T_self_percent = human_trustee_greedyT4T_self.query('generosity>=0.5').size / human_trustee_greedyT4T_self.size
+	human_trustee_greedyT4T_social_percent = human_trustee_greedyT4T_social.query('generosity>=0.5').size / human_trustee_greedyT4T_social.size
+
+	print(f'\nWhen playing the investor against a generousT4T opponent, what percentate of human participants invest all their coins?')
+	print(f'{human_investor_generousT4T_self_percent:.2}% of unfriendly agents and {human_investor_generousT4T_social_percent:.2}% of friendly agents')
+	print(f'\nWhen playing the trustee against a greedyT4T opponent, what percentate of human participants returned coins fairly?')
+	print(f'{human_trustee_greedyT4T_self_percent:.2}% of unfriendly agents and {human_trustee_greedyT4T_social_percent:.2}% of friendly agents')
+
+	final_games = [140,141,142,143,144,145,146,147,148,149]
+	f_thr = 0.1
+	dqn_data = pd.read_pickle(f'agent_data/DeepQLearning_N=100_friendliness.pkl')
+	ibl_data = pd.read_pickle(f'agent_data/InstanceBased_N=100_friendliness.pkl')
+	nef_data = pd.read_pickle(f'agent_data/NengoQLearning_N=100_friendliness.pkl')
+
+	ibl_investor_generousT4T_self = ibl_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness<@f_thr').dropna()
+	ibl_investor_generousT4T_social = ibl_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr').dropna()
+	ibl_trustee_greedyT4T_self = ibl_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').dropna()
+	ibl_trustee_greedyT4T_social = ibl_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').dropna()
+	ibl_investor_generousT4T_self_percent = ibl_investor_generousT4T_self.query('generosity==1').size / ibl_investor_generousT4T_self.size
+	ibl_investor_generousT4T_social_percent = ibl_investor_generousT4T_social.query('generosity==1').size / ibl_investor_generousT4T_social.size
+	ibl_trustee_greedyT4T_self_percent = ibl_trustee_greedyT4T_self.query('generosity>=0.5').size / ibl_trustee_greedyT4T_self.size
+	ibl_trustee_greedyT4T_social_percent = ibl_trustee_greedyT4T_social.query('generosity>=0.5').size / ibl_trustee_greedyT4T_social.size
+
+	nef_investor_generousT4T_self = nef_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness<@f_thr').dropna()
+	nef_investor_generousT4T_social = nef_data.query('game in @final_games & player=="investor" & opponent_ID=="GenerousT4T" & friendliness>=@f_thr').dropna()
+	nef_trustee_greedyT4T_self = nef_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness<@f_thr').dropna()
+	nef_trustee_greedyT4T_social = nef_data.query('game in @final_games & player=="trustee" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr').dropna()
+	nef_investor_generousT4T_self_percent = nef_investor_generousT4T_self.query('generosity==1').size / nef_investor_generousT4T_self.size
+	nef_investor_generousT4T_social_percent = nef_investor_generousT4T_social.query('generosity==1').size / nef_investor_generousT4T_social.size
+	nef_trustee_greedyT4T_self_percent = nef_trustee_greedyT4T_self.query('generosity>=0.5').size / nef_trustee_greedyT4T_self.size
+	nef_trustee_greedyT4T_social_percent = nef_trustee_greedyT4T_social.query('generosity>=0.5').size / nef_trustee_greedyT4T_social.size
+
+	print(f'\nWhen playing the investor against a generousT4T opponent, what percentate of IBL agents invest all their coins?')
+	print(f'{ibl_investor_generousT4T_self_percent:.2}% of unfriendly agents and {ibl_investor_generousT4T_social_percent:.2}% of friendly agents')
+	print(f'\nWhen playing the trustee against a greedyT4T opponent, what percentate of IBL agents returned coins fairly?')
+	print(f'{ibl_trustee_greedyT4T_self_percent:.2}% of unfriendly agents and {ibl_trustee_greedyT4T_social_percent:.2}% of friendly agents')
+
+	print(f'\nWhen playing the investor against a generousT4T opponent, what percentate of NEF agents invest all their coins?')
+	print(f'{nef_investor_generousT4T_self_percent:.5}% of unfriendly agents and {nef_investor_generousT4T_social_percent:.5}% of friendly agents')
+	print(f'\nWhen playing the trustee against a greedyT4T opponent, what percentate of NEF agents returned coins fairly?')
+	print(f'{nef_trustee_greedyT4T_self_percent:.2}% of unfriendly agents and {nef_trustee_greedyT4T_social_percent:.2}% of friendly agents')
 
 
 # test_agent_learning()
 test_entropy_model_human()
+# test_agent_orientation()
+# test_agent_behaviors()
+
+

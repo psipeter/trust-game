@@ -2,7 +2,6 @@
 from learning_agents import *
 from utils import *
 from experiments import *
-from analysis import *
 
 # plot_user_data()
 # plot_agent_data("agent_data/DeepQLearning_N=3_friendliness.pkl", learner_type='deep-q-learning', seed=0, n_learners=3)

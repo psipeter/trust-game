@@ -418,6 +418,7 @@ def plot_full_comparison():
 		if architecture=='dqn': frame_color = palette[3]
 		if architecture=='ibl': frame_color = palette[4]
 		if architecture=='nef': frame_color = palette[5]
+		for spine in axes[row,col].spines.values(): spine.set_linewidth(2)
 		for spine in axes[row,col].spines.values(): spine.set_edgecolor(frame_color)
 		sns.kdeplot(data=data, x='game', y='generosity', ax=axes[row, col],
 			bw_method=0.1, levels=6, thresh=0.05, fill=True,
@@ -431,6 +432,7 @@ def plot_full_comparison():
 		if architecture=='dqn': frame_color = palette[3]
 		if architecture=='ibl': frame_color = palette[4]
 		if architecture=='nef': frame_color = palette[5]
+		for spine in axes[row,col].spines.values(): spine.set_linewidth(2)
 		for spine in axes[row,col].spines.values(): spine.set_edgecolor(frame_color)
 		sns.histplot(data_final, x='turn', y='generosity', stat='density', ax=axes[row, col],
 			binwidth=[1, 0.2], binrange=[[0,5],[0,1]], thresh=0.05,
@@ -487,7 +489,7 @@ def plot_full_comparison():
 	f_thr = 0.1
 	dqn_data = pd.read_pickle(f'agent_data/DeepQLearning_N=100_friendliness.pkl')
 	ibl_data = pd.read_pickle(f'agent_data/InstanceBased_N=100_friendliness.pkl')
-	nef_data = pd.read_pickle(f'agent_data/NengoQLearning_N=3_friendliness.pkl')
+	nef_data = pd.read_pickle(f'agent_data/NengoQLearning_N=100_friendliness.pkl')
 
 	dqn_investor_greedyT4T_self = dqn_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@f_thr')
 	dqn_investor_greedyT4T_social = dqn_data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness>=@f_thr')
