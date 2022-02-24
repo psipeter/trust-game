@@ -41,9 +41,13 @@ def play_game(game, investor, trustee):
 		game.trustee_state.append(trustee.state)
 		game.investor_reward.append(i_keep+t_give)
 		game.trustee_reward.append(t_keep)
-	if game.train:
-		investor.learn(game)
-		trustee.learn(game)
+
+		if game.train:
+			investor.learn(game)
+			trustee.learn(game)
+	# if game.train:
+	# 	investor.learn(game)
+	# 	trustee.learn(game)
 
 def game_loop(investor, trustee, learner, train, g, dfs):
 	columns = ('ID', 'opponent_ID', 'player', 'train', 'game', 'turn', 'generosity', 'coins', 'friendliness', 'gamma')
@@ -64,7 +68,7 @@ def train_and_test(investors, trustees, learner_plays, n_train, learner_name, op
 		print(f"{learner_name} {learner.ID} vs {opponent_name}")
 		learner.reinitialize(player=learner_plays, ID=learner.ID, seed=learner.seed)
 		for g in range(n_train):
-			# print(f"game {g}")
+			print(f"game {g}")
 			if learner_plays=='investor':
 				dfs = game_loop(learner, trustees[g], learner, train=True, g=g, dfs=dfs)
 			elif learner_plays=='trustee':
@@ -90,6 +94,8 @@ def make_learners(learner_type, seed, n_learners):
 		learners = [InstanceBased('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="nengo-q-learning":
 		learners = [NengoQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="NQ2":
+		learners = [NQ2('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="nengo-actor-critic":
 		learners = [NengoActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	return learners
