@@ -1080,21 +1080,6 @@ class NQ2():
 					# print(t, np.around(critic, 2), np.around(choice, 2), np.around(self.memory, 2))
 					return self.memory
 
-			class MultiplyNode(nengo.Node):
-				def __init__(self, dim1, dim2, name=None):
-					self.dim1 = dim1
-					self.dim2 = dim2
-					self.name = name
-					self.size_in = dim1 + dim2
-					self.size_out = np.max([dim1, dim2])
-					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
-				def step(self, t, x):
-					x1 = x[:self.dim1]
-					x2 = x[self.dim1:]
-					product = np.multiply(x1, x2)
-					# print(t, self.name, np.around(product, 2))
-					return product
-
 			class ChoiceNode(nengo.Node):
 				def __init__(self, n_actions):
 					self.n_actions = n_actions
@@ -1107,6 +1092,50 @@ class NQ2():
 					one_hot[action] = 1
 					# print(one_hot)
 					return one_hot
+
+			def ScalarProduct(n_neurons, n_actions, seed, neuron_type=nengo.LIFRate(), mag=1):
+				net = nengo.Network(seed=seed)
+				T = 1.0 / np.sqrt(2)
+				with net:
+					net.input_a = net.A = nengo.Node(size_in=1, label="input_a")
+					net.input_b = net.B = nengo.Node(size_in=n_actions, label="input_b")
+					net.output = nengo.Node(size_in=n_actions, label="output")
+					net.sq1 = nengo.networks.EnsembleArray(n_neurons, n_actions, neuron_type=neuron_type, ens_dimensions=1, radius=mag*np.sqrt(2), seed=seed)
+					net.sq2 = nengo.networks.EnsembleArray(n_neurons, n_actions, neuron_type=neuron_type, ens_dimensions=1, radius=mag*np.sqrt(2), seed=seed)
+					nengo.Connection(net.input_a, net.sq1.input, seed=seed, synapse=None, transform=T*np.ones((n_actions, 1)))
+					nengo.Connection(net.input_b, net.sq1.input, seed=seed, synapse=None, transform=T)
+					nengo.Connection(net.input_a, net.sq2.input, seed=seed, synapse=None, transform=T*np.ones((n_actions, 1)))
+					nengo.Connection(net.input_b, net.sq2.input, seed=seed, synapse=None, transform=-T)
+					sq1_out = net.sq1.add_output('square', np.square)
+					nengo.Connection(sq1_out, net.output, transform=.5, synapse=None)
+					sq2_out = net.sq2.add_output('square', np.square)
+					nengo.Connection(sq2_out, net.output, transform=-.5, synapse=None)
+					net.p_a = nengo.Probe(net.input_a, synapse=None)
+					net.p_b = nengo.Probe(net.input_b, synapse=None)
+					net.p_out = nengo.Probe(net.output, synapse=None)
+				return net
+
+			def VectorProduct(n_neurons, n_actions, seed, neuron_type=nengo.LIFRate(), mag=1):
+				net = nengo.Network(seed=seed)
+				T = 1.0 / np.sqrt(2)
+				with net:
+					net.input_a = net.A = nengo.Node(size_in=n_actions, label="input_a")
+					net.input_b = net.B = nengo.Node(size_in=n_actions, label="input_b")
+					net.output = nengo.Node(size_in=n_actions, label="output")
+					net.sq1 = nengo.networks.EnsembleArray(n_neurons, n_actions, neuron_type=neuron_type, ens_dimensions=1, radius=mag*np.sqrt(2), seed=seed)
+					net.sq2 = nengo.networks.EnsembleArray(n_neurons, n_actions, neuron_type=neuron_type, ens_dimensions=1, radius=mag*np.sqrt(2), seed=seed)
+					nengo.Connection(net.input_a, net.sq1.input, seed=seed, synapse=None, transform=T)
+					nengo.Connection(net.input_b, net.sq1.input, seed=seed, synapse=None, transform=T)
+					nengo.Connection(net.input_a, net.sq2.input, seed=seed, synapse=None, transform=T)
+					nengo.Connection(net.input_b, net.sq2.input, seed=seed, synapse=None, transform=-T)
+					sq1_out = net.sq1.add_output('square', np.square)
+					nengo.Connection(sq1_out, net.output, transform=.5, synapse=None)
+					sq2_out = net.sq2.add_output('square', np.square)
+					nengo.Connection(sq2_out, net.output, transform=-.5, synapse=None)
+					net.p_a = nengo.Probe(net.input_a, synapse=None)
+					net.p_b = nengo.Probe(net.input_b, synapse=None)
+					net.p_out = nengo.Probe(net.output, synapse=None)
+				return net
 
 			# inputs from environment
 			state_input = nengo.Node(lambda t, x: self.env.get_state(), size_in=2, size_out=n_states)
@@ -1125,9 +1154,9 @@ class NQ2():
 			choice_memory = ChoiceMemoryNode(n_actions)
 			value_memory = ValueMemoryNode(n_actions)
 			state_gate = StateGate(n_states)
-			replayed_value_product = MultiplyNode(n_actions, n_actions, name='replay')
-			buffered_value_product = MultiplyNode(1, n_actions, name='buffer')
-			reward_product = MultiplyNode(1, n_actions, name='reward')
+			replayed_value_product = VectorProduct(n_neurons, n_actions, seed=seed, mag=1, neuron_type=nengo.Direct())
+			buffered_value_product = ScalarProduct(n_neurons, n_actions, seed=seed, mag=1, neuron_type=nengo.Direct())
+			reward_product = ScalarProduct(n_neurons, n_actions, seed=seed, mag=1, neuron_type=nengo.Direct())
 
 			# inputs: current state to state memory
 			nengo.Connection(state_input, state_memory[:n_states], synapse=None)
@@ -1160,15 +1189,15 @@ class NQ2():
 
 			# during replay (stage 2), index all components of the error signal by the action stored in choice memory
 			# so that updates to the decoders only affect the dimensions corresponding to a0
-			nengo.Connection(value_memory, buffered_value_product[0], synapse=None)
-			nengo.Connection(choice_memory, buffered_value_product[1:], synapse=None)
-			nengo.Connection(buffered_value_product, error, synapse=None, transform=self.gamma)
-			nengo.Connection(reward, reward_product[0], synapse=None)
-			nengo.Connection(choice_memory, reward_product[1:], synapse=None)
-			nengo.Connection(reward_product, error, synapse=None)
-			nengo.Connection(critic, replayed_value_product[:n_actions], synapse=None)
-			nengo.Connection(choice_memory, replayed_value_product[n_actions:], synapse=None)
-			nengo.Connection(replayed_value_product, error, synapse=None, transform=-1)
+			nengo.Connection(value_memory, buffered_value_product.input_a, synapse=None)
+			nengo.Connection(choice_memory, buffered_value_product.input_b, synapse=None)
+			nengo.Connection(buffered_value_product.output, error, synapse=None, transform=self.gamma)
+			nengo.Connection(reward, reward_product.input_a, synapse=None)
+			nengo.Connection(choice_memory, reward_product.input_b, synapse=None)
+			nengo.Connection(reward_product.output, error, synapse=None)
+			nengo.Connection(critic, replayed_value_product.input_a, synapse=None)
+			nengo.Connection(choice_memory, replayed_value_product.input_b, synapse=None)
+			nengo.Connection(replayed_value_product.output, error, synapse=None, transform=-1)
 
 			# turn learning off until replay (stage 3)
 			nengo.Connection(replay, error.neurons, synapse=None, function=lambda x: 1-x, transform=wInh)
