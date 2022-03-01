@@ -1154,9 +1154,9 @@ class NQ2():
 			choice_memory = ChoiceMemoryNode(n_actions)
 			value_memory = ValueMemoryNode(n_actions)
 			state_gate = StateGate(n_states)
-			replayed_value_product = VectorProduct(n_neurons, n_actions, seed=seed, mag=1, neuron_type=nengo.Direct())
-			buffered_value_product = ScalarProduct(n_neurons, n_actions, seed=seed, mag=1, neuron_type=nengo.Direct())
-			reward_product = ScalarProduct(n_neurons, n_actions, seed=seed, mag=1, neuron_type=nengo.Direct())
+			replayed_value_product = VectorProduct(n_neurons, n_actions, seed=seed, mag=radius)
+			buffered_value_product = ScalarProduct(n_neurons, n_actions, seed=seed, mag=radius)
+			reward_product = ScalarProduct(n_neurons, n_actions, seed=seed, mag=1)
 
 			# inputs: current state to state memory
 			nengo.Connection(state_input, state_memory[:n_states], synapse=None)
