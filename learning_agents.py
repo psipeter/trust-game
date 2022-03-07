@@ -969,7 +969,6 @@ class NQ2():
 	def new_game(self, game):
 		self.env.__init__(self.n_states, self.n_actions, self.t1, self.t2, self.t3, self.rng)
 		self.simulator.reset(self.seed)
-		self.network.value_memory.memory = 0
 		self.episode += 1
 
 	def build_network(self):
@@ -1101,34 +1100,6 @@ class NQ2():
 					nengo.Connection(net.a.output, net.output, synapse=None)
 				return net
 
-
-			def VectorProductDirect(n_actions, seed):
-				net = nengo.Network(seed=seed)
-				wInh = -1e1 * np.ones((n_neurons, 1))
-				with net:
-					net.vector = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
-					net.onehot = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
-					net.combined = nengo.Ensemble(1, 2*n_actions, neuron_type=nengo.Direct())
-					net.output = nengo.Ensemble(1, 1, neuron_type=nengo.Direct())
-					nengo.Connection(net.vector, net.combined[:n_actions], synapse=None)
-					nengo.Connection(net.onehot, net.combined[n_actions:], synapse=None)
-					nengo.Connection(net.combined, net.output, synapse=None, function=lambda x: np.dot(x[:n_actions], x[n_actions:]))
-				return net
-
-			class GatedMemoryDirect(nengo.Node):
-				def __init__(self):
-					self.size_in = 3
-					self.size_out = 1
-					self.memory = 0
-					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
-				def step(self, t, x):
-					state = x[0]
-					replay = int(x[1])
-					buffer = int(x[2])
-					if buffer==0 and replay==0:
-						self.memory = state
-					return self.memory
-
 			# inputs from environment
 			state_input = nengo.Node(lambda t, x: self.env.get_state(), size_in=2, size_out=n_states)
 			reward = nengo.Node(lambda t, x: self.env.get_reward(), size_in=2, size_out=1)
@@ -1144,10 +1115,9 @@ class NQ2():
 			choice = ChoiceNode(n_actions)
 			state_memory = GatedMemory(n_neurons, n_states, seed=seed, onehot=True)
 			choice_memory = GatedMemory(n_neurons, n_actions, seed=seed, onehot=True)
-			value_multiply = VectorProductDirect(n_actions, seed=seed)
-			# value_memory = GatedMemoryDirect()
 			value_memory = GatedMemory(n_neurons, 1, seed=seed, gain=0.2, n_gates=2, radius=radius)
 			state_gate = GatedSwitch(n_neurons, n_states, seed=seed)
+			compressed_value_product = VectorProduct(n_neurons, n_actions, seed=seed, radius=radius)
 			replayed_value_product = VectorProduct(n_neurons, n_actions, seed=seed, radius=radius)
 			buffered_value_product = ScalarProduct(n_neurons, n_actions, seed=seed, radius=radius)
 			reward_product = ScalarProduct(n_neurons, n_actions, seed=seed, radius=1)
@@ -1173,12 +1143,9 @@ class NQ2():
 			nengo.Connection(explore, choice, synapse=None)
 
 			# before learning (stage 1), store the Q value of the current state, indexed by the best action in the new state
-			nengo.Connection(critic.output, value_multiply.vector, synapse=None)
-			nengo.Connection(choice, value_multiply.onehot, synapse=None)
-			# nengo.Connection(value_multiply.output, value_memory[0], synapse=None)
-			# nengo.Connection(replay, value_memory[1], synapse=None)
-			# nengo.Connection(buffer, value_memory[2], synapse=None)
-			nengo.Connection(value_multiply.output, value_memory.state, synapse=None)
+			nengo.Connection(critic.output, compressed_value_product.vector, synapse=None)
+			nengo.Connection(choice, compressed_value_product.onehot, synapse=None, function=lambda x: 1-x)
+			nengo.Connection(compressed_value_product.output, value_memory.state, synapse=None, function=lambda x: np.sum(x))
 			nengo.Connection(replay, value_memory.gates[0], synapse=None, function=lambda x: 1-x)
 			nengo.Connection(buffer, value_memory.gates[1], synapse=None, function=lambda x: 1-x)
 
@@ -1188,7 +1155,6 @@ class NQ2():
 
 			# during replay (stage 2), index all components of the error signal by the action stored in choice memory
 			# so that updates to the decoders only affect the dimensions corresponding to a0
-			# nengo.Connection(value_memory, buffered_value_product.scalar, synapse=None)
 			nengo.Connection(value_memory.output, buffered_value_product.scalar, synapse=None)
 			nengo.Connection(choice_memory.output, buffered_value_product.onehot, synapse=None, function=lambda x: 1-x)
 			nengo.Connection(buffered_value_product.output, error.input, synapse=None, transform=self.gamma)
@@ -1203,7 +1169,6 @@ class NQ2():
 			error.add_neuron_input()
 			nengo.Connection(replay, error.neuron_input, synapse=None, function=lambda x: 1-x, transform=wInh)
 
-			network.value_memory = value_memory
 			network.p_state = nengo.Probe(state.neuron_output)
 			network.p_state_memory = nengo.Probe(state_memory.output)
 			network.p_critic = nengo.Probe(critic.output)
@@ -1213,10 +1178,10 @@ class NQ2():
 			network.p_choice = nengo.Probe(choice)
 			network.p_buffer = nengo.Probe(buffer)
 			network.p_replay = nengo.Probe(replay)
-			# network.p_value_memory = nengo.Probe(value_memory)
 			network.p_value_memory = nengo.Probe(value_memory.output)
 			network.p_value_diff = nengo.Probe(value_memory.diff.output)
 			network.p_choice_memory = nengo.Probe(choice_memory.output)
+			network.p_compressed_value_product = nengo.Probe(compressed_value_product.output)
 			network.p_replayed_value_product = nengo.Probe(replayed_value_product.output)
 			network.p_buffered_value_product = nengo.Probe(buffered_value_product.output)
 
@@ -1234,10 +1199,10 @@ class NQ2():
 		self.simulator.run(self.t1, progress_bar=False)  # store Q(s',a*)
 		# print('state', np.around(self.simulator.data[self.network.p_state][-1], 2))
 		# print('state memory', np.around(self.simulator.data[self.network.p_state_memory][-1], 2))
-		print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
-		print('choice', np.around(self.simulator.data[self.network.p_choice][-1], 2))
-		# print('value diff', np.around(self.simulator.data[self.network.p_value_diff][-1], 2))
-		print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
+		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
+		# print('choice', np.around(self.simulator.data[self.network.p_choice][-1], 2))
+		# print('compressed value product', np.around(self.simulator.data[self.network.p_compressed_value_product][-1], 2))
+		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
 
 		# print("Stage 2")  # recall s, a, retrieve Q(s',a*), and R(s,a); compute Q(s,a), compute dQ, and to TD(0) with PES
 		self.env.set_explore(0)
@@ -1248,7 +1213,7 @@ class NQ2():
 		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
 		# print('choice memory', np.around(self.simulator.data[self.network.p_choice_memory][-1], 2))
 		# print('value diff', np.around(self.simulator.data[self.network.p_value_diff][-1], 2))
-		print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
+		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
 		# print('reward', np.around(self.simulator.data[self.network.p_reward][-1], 2))
 		# print('error', np.around(self.simulator.data[self.network.p_error][-1], 2))
 		# print('replayed value product', np.around(self.simulator.data[self.network.p_replayed_value_product][-1], 2))
