@@ -1145,7 +1145,8 @@ class NQ2():
 			# before learning (stage 1), store the Q value of the current state, indexed by the best action in the new state
 			nengo.Connection(critic.output, compressed_value_product.vector, synapse=None)
 			nengo.Connection(choice, compressed_value_product.onehot, synapse=None, function=lambda x: 1-x)
-			nengo.Connection(compressed_value_product.output, value_memory.state, synapse=None, function=lambda x: np.sum(x))
+			for ens in compressed_value_product.a.ea_ensembles:  # sum all dimensions, reducing the one-hot vector to a 1D estimate of Q(s',a')
+				nengo.Connection(ens, value_memory.state, synapse=None)
 			nengo.Connection(replay, value_memory.gates[0], synapse=None, function=lambda x: 1-x)
 			nengo.Connection(buffer, value_memory.gates[1], synapse=None, function=lambda x: 1-x)
 
