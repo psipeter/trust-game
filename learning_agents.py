@@ -935,7 +935,7 @@ class NQ2():
 			return self.explore
 
 	def __init__(self, player, seed=0, n_actions=11, ID="NQ2", representation='turn-coin',
-			encoder_method='one-hot', learning_rate=3e-7, n_neurons=200, dt=1e-3, t1=3e-2, t2=3e-2, t3=3e-2, radius=2.5,
+			encoder_method='one-hot', learning_rate=2e-7, n_neurons=200, dt=1e-3, t1=3e-2, t2=4e-2, t3=3e-2, radius=2.5,
 			explore_method='epsilon', explore=1, explore_decay=0.005, gamma=0.99, friendliness=0):
 		self.player = player
 		self.ID = ID
@@ -1117,8 +1117,6 @@ class NQ2():
 			learning = LearningNode(n_states, n_actions, self.decoders, self.learning_rate)
 			# normalize = nengo.Ensemble(n_neurons*n_actions, n_actions, radius=radius)
 			normalize = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
-			basal_ganglia = nengo.networks.BasalGanglia(n_actions, n_neurons, input_bias=0.3)
-			thalamus = nengo.networks.Thalamus(n_actions, n_neurons)
 			choice = ChoiceNode(n_actions)
 			state_memory = GatedMemory(n_neurons, n_states, seed=seed, onehot=True)
 			choice_memory = GatedMemory(n_neurons, n_actions, seed=seed, onehot=True)
@@ -1128,6 +1126,11 @@ class NQ2():
 			replayed_value_product = VectorProduct(n_neurons, n_actions, seed=seed, radius=radius)
 			buffered_value_product = ScalarProduct(n_neurons, n_actions, seed=seed, radius=radius)
 			reward_product = ScalarProduct(n_neurons, n_actions, seed=seed, radius=1)
+			basal_ganglia = nengo.networks.BasalGanglia(n_actions, n_neurons, input_bias=0.3)
+			thalamus = nengo.networks.Thalamus(n_actions, n_neurons)
+			cleanup = nengo.networks.AssociativeMemory(np.eye(n_actions), n_neurons=n_neurons, seed=seed)
+			cleanup.add_wta_network()
+			onehot = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
 
 			# inputs: current state to state memory
 			nengo.Connection(state_input, state_memory.state, synapse=None)
@@ -1146,26 +1149,27 @@ class NQ2():
 			nengo.Connection(learning, critic.input, synapse=0)
 
 			# Q values sent to WTA competition in choice
-			# nengo.Connection(critic.output, choice, synapse=None)
-			# nengo.Connection(explore, choice, synapse=None)
 			nengo.Connection(critic.output, normalize, synapse=None)
 			nengo.Connection(explore, normalize, synapse=None)
 			nengo.Connection(normalize, basal_ganglia.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
 			# nengo.Connection(critic.output, basal_ganglia.input, synapse=None)
 			# nengo.Connection(explore, basal_ganglia.input, synapse=None)
 			nengo.Connection(basal_ganglia.output, thalamus.input, synapse=None)
-			nengo.Connection(thalamus.output, choice, synapse=None)
+			nengo.Connection(thalamus.output, cleanup.input, synapse=None)
+			# nengo.Connection(thalamus.output, choice, synapse=None)
+			# nengo.Connection(choice, cleanup.input, synapse=None)
+			nengo.Connection(cleanup.output, onehot, synapse=None)
 
 			# before learning (stage 1), store the Q value of the current state, indexed by the best action in the new state
 			nengo.Connection(critic.output, compressed_value_product.vector, synapse=None)
-			nengo.Connection(choice, compressed_value_product.onehot, synapse=None, function=lambda x: 1-x)
+			nengo.Connection(onehot, compressed_value_product.onehot, synapse=None, function=lambda x: 1-x)
 			for ens in compressed_value_product.a.ea_ensembles:  # sum all dimensions, reducing the one-hot vector to a 1D estimate of Q(s',a')
 				nengo.Connection(ens, value_memory.state, synapse=None)
 			nengo.Connection(replay, value_memory.gates[0], synapse=None, function=lambda x: 1-x)
 			nengo.Connection(buffer, value_memory.gates[1], synapse=None, function=lambda x: 1-x)
 
 			# after learning (stage 3), store the action selected by the choice ensemble in choice memory
-			nengo.Connection(choice, choice_memory.state, synapse=None)
+			nengo.Connection(onehot, choice_memory.state, synapse=None)
 			nengo.Connection(buffer, choice_memory.gates[0], synapse=None)
 
 			# during replay (stage 2), index all components of the error signal by the action stored in choice memory
@@ -1195,6 +1199,7 @@ class NQ2():
 			network.p_basal_ganglia = nengo.Probe(basal_ganglia.output)
 			network.p_thalamus = nengo.Probe(thalamus.output)			
 			network.p_choice = nengo.Probe(choice)
+			network.p_onehot = nengo.Probe(onehot)
 			network.p_buffer = nengo.Probe(buffer)
 			network.p_replay = nengo.Probe(replay)
 			network.p_value_memory = nengo.Probe(value_memory.output)
@@ -1218,12 +1223,13 @@ class NQ2():
 		self.simulator.run(self.t1, progress_bar=False)  # store Q(s',a*)
 		# print('state', np.around(self.simulator.data[self.network.p_state][-1], 2))
 		# print('state memory', np.around(self.simulator.data[self.network.p_state_memory][-1], 2))
-		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
+		print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
 		# print('normalize_in', np.around(self.simulator.data[self.network.p_normalize_in][-1], 2))
 		# print('bg_in', np.around(self.simulator.data[self.network.p_normalize_out][-1], 2))
 		# print('bg_out', np.around(self.simulator.data[self.network.p_basal_ganglia][-1], 2))
 		# print('thalamus', np.around(self.simulator.data[self.network.p_thalamus][-1], 2))
 		# print('choice', np.around(self.simulator.data[self.network.p_choice][-1], 2))
+		print('onehot', np.around(self.simulator.data[self.network.p_onehot][-1], 2))
 		# print('compressed value product', np.around(self.simulator.data[self.network.p_compressed_value_product][-1], 2))
 		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
 
@@ -1250,7 +1256,7 @@ class NQ2():
 		self.env.buffer = 1  # save the current state to a state memory buffer
 		self.env.replay = 0  # do not replay items from memory buffers
 		self.simulator.run(self.t3, progress_bar=False)  # choose a'
-		choice = self.simulator.data[self.network.p_choice][-1]
+		choice = self.simulator.data[self.network.p_onehot][-1]
 		action = np.argmax(choice)
 		self.state = action / (self.n_actions-1)  # translate action into environment-appropriate signal
 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
@@ -1259,11 +1265,12 @@ class NQ2():
 		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
 		# print('thalamus', np.around(self.simulator.data[self.network.p_thalamus][-1], 2))
 		# print('choice', np.around(self.simulator.data[self.network.p_choice][-1], 2))
+		# print('onehot', np.around(self.simulator.data[self.network.p_onehot][-1], 2))
 		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
-		print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
+		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
 		# print('normalize_in', np.around(self.simulator.data[self.network.p_normalize_in][-1], 2))
-		print('bg_in ', np.around(self.simulator.data[self.network.p_normalize_out][-1], 2))
-		print('bg_out', np.around(self.simulator.data[self.network.p_basal_ganglia][-1], 2))
+		# print('bg_in ', np.around(self.simulator.data[self.network.p_normalize_out][-1], 2))
+		# print('bg_out', np.around(self.simulator.data[self.network.p_basal_ganglia][-1], 2))
 
 		return give, keep
 
