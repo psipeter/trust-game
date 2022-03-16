@@ -947,7 +947,7 @@ class NQ2():
 			return self.reset[idx]
 
 	def __init__(self, player, seed=0, n_actions=11, ID="NQ2", representation='turn-coin',
-			encoder_method='one-hot', learning_rate=1e-6, n_neurons=500, dt=1e-3, t1=2e-2, t2=2e-2, t3=2e-2, tR=1e-2, radius=5,
+			encoder_method='one-hot', learning_rate=1e-6, n_neurons=500, dt=1e-3, t1=2e-2, t2=2e-2, t3=2e-2, tR=3e-3, radius=5,
 			explore_method='epsilon', explore=1, explore_decay=0.005, gamma=0.99, friendliness=0):
 		self.player = player
 		self.ID = ID
@@ -1116,7 +1116,7 @@ class NQ2():
 					nengo.Connection(net.a.output, net.output, synapse=None)
 				return net
 
-			def GatedAccumulator(n_neurons, n_actions, seed, thr=0.9, Tff=0.1, radius=2.5):
+			def GatedAccumulator(n_neurons, n_actions, seed, thr=0.95, Tff=0.1, radius=5):
 				net = nengo.Network(seed=seed)
 				wInhGate = -1e0 * np.ones((n_neurons, 1))
 				wInhAcc = -1e-1 * np.ones((n_neurons, 1))
@@ -1161,7 +1161,7 @@ class NQ2():
 			critic = nengo.networks.EnsembleArray(n_neurons, n_actions, radius=radius)
 			error = nengo.networks.EnsembleArray(n_neurons, n_actions, radius=1)
 			learning = LearningNode(n_states, n_actions, self.decoders, self.learning_rate)
-			# normalize = GatedAccumulator(n_neurons, n_actions, radius=radius, seed=seed)
+			normalize = GatedAccumulator(n_neurons, n_actions, radius=radius, seed=seed)
 			# normalize = nengo.Ensemble(1, n_actions, neuron_type=nengo.Direct())
 			choice = ChoiceNode(n_actions)
 			state_memory = GatedMemory(n_neurons, n_states, gain=0.2, seed=seed, onehot=True)
@@ -1212,7 +1212,10 @@ class NQ2():
 			# nengo.Connection(explore, choice, synapse=None)
 			# nengo.Connection(basal_ganglia.output, choice, synapse=None)
 			# nengo.Connection(choice, onehot, synapse=None)
-			nengo.Connection(critic.output, choice, synapse=None)
+			# nengo.Connection(critic.output, choice, synapse=None)
+			nengo.Connection(critic.output, normalize.input, synapse=None)
+			nengo.Connection(reset, normalize.reset, synapse=None)
+			nengo.Connection(normalize.input, choice, synapse=None)
 			nengo.Connection(explore, choice, synapse=None)
 			nengo.Connection(choice, onehot, synapse=None)
 
@@ -1250,7 +1253,7 @@ class NQ2():
 			network.p_learning = nengo.Probe(learning)
 			network.p_reward = nengo.Probe(reward)
 			network.p_error = nengo.Probe(error.output)
-			# network.p_normalize = nengo.Probe(normalize.output)
+			network.p_normalize = nengo.Probe(normalize.output)
 			# network.p_basal_ganglia_in = nengo.Probe(basal_ganglia.input)
 			# network.p_basal_ganglia_out = nengo.Probe(basal_ganglia.output)
 			# network.p_thalamus = nengo.Probe(thalamus.output)
@@ -1283,7 +1286,7 @@ class NQ2():
 		# print('state', np.around(self.simulator.data[self.network.p_state][-1], 2))
 		# print('state memory', np.around(self.simulator.data[self.network.p_state_memory][-1], 2))
 		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
-		# print('normalize', np.around(self.simulator.data[self.network.p_normalize][-40:], 2))
+		# print('normalize', np.around(self.simulator.data[self.network.p_normalize][-20:], 2))
 		# print('bg_in', np.around(self.simulator.data[self.network.p_basal_ganglia_in][-1], 2))
 		# print('bg_out', np.around(self.simulator.data[self.network.p_basal_ganglia_out][-1], 2))
 		# print('thalamus', np.around(self.simulator.data[self.network.p_thalamus][-1], 2))
@@ -1291,8 +1294,8 @@ class NQ2():
 		# print('onehot', np.around(self.simulator.data[self.network.p_onehot][-1], 2))
 		# print('compressed value product', np.around(self.simulator.data[self.network.p_compressed_value_product][-1], 2))
 		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
-		print(f"critic range: \t {np.around(np.min(critic[-1]), 2)} to {np.around(np.max(critic[-1]), 2)}")
-		print(f'value memory error: \t {100*np.around(np.abs(value_memory[-1]-np.max(critic[-1]))/(np.max(critic[-1])), 2)[0]}%')
+		# print(f"critic range: \t {np.around(np.min(critic[-1]), 2)} to {np.around(np.max(critic[-1]), 2)}")
+		# print(f'value memory error: \t {100*np.around(np.abs(value_memory[-1]-np.max(critic[-1]))/(np.max(critic[-1])), 2)[0]}%')
 		# print(f"argmax critic \t {np.argmax(self.simulator.data[self.network.p_critic][-1])}")
 		# print(f"argmax bg  \t {np.argmax(self.simulator.data[self.network.p_basal_ganglia_out][-1])}")
 		# print(f"argmax thal \t {np.argmax(self.simulator.data[self.network.p_thalamus][-1])}")
