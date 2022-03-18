@@ -89,6 +89,8 @@ class adaptive():
 			if self.player == 'investor':  # [c,c,c,c,d]
 				self.state = 1
 				if np.any(np.array(game.trustee_gen)<self.thr_trustee): self.state = 0.1
+				# if t==0: self.state = 1
+				# if t>0 and game.trustee_gen[-1]<self.thr_trustee: self.state = 0.1
 			elif self.player == 'trustee': # [c,c,c,c,c]
 				self.state = 0.5
 		if self.ID == "attrition":
