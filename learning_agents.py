@@ -123,7 +123,7 @@ class NormalizedQLearning():
 
 	def __init__(self, player, seed=0, n_actions=11, ID="normalized-q-learning", representation='turn-coin',
 			explore_method='epsilon', explore_start=1, explore_decay=0.005, explore_decay_method='linear',
-			learning_rate=8e-1, gamma=0.7, randomize=False):
+			learning_rate=1e0, gamma=0.6, randomize=False):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -195,6 +195,8 @@ class NormalizedQLearning():
 				dT = 0
 				delta = dR + dT - value
 			self.Q[state, action] += self.learning_rate * delta
+		for s in self.state_history:
+			print(self.Q[state])
 
 
 class TabularActorCritic():
@@ -1032,8 +1034,8 @@ class NQ2():
 			return self.reset[idx]
 
 	def __init__(self, player, seed=0, n_actions=11, ID="NQ2", representation='turn-coin',
-			encoder_method='one-hot', learning_rate=1e-6, n_neurons=500, dt=1e-3, t1=2e-2, t2=2e-2, t3=2e-2, tR=2e-3, radius=1,
-			explore_method='epsilon', explore=1, explore_decay=0.005, gamma=0.7, friendliness=0):
+			encoder_method='one-hot', learning_rate=3e-8, n_neurons=500, dt=1e-3, t1=2e-2, t2=2e-2, t3=2e-2, tR=3e-3, radius=1,
+			explore_method='epsilon', explore=1, explore_decay=0.005, gamma=0.6, friendliness=0):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -1277,27 +1279,10 @@ class NQ2():
 			nengo.Connection(learning, critic.input, synapse=0)
 
 			# Q values sent to WTA competition in choice
-			# nengo.Connection(critic.output, normalize, synapse=None)
-			# nengo.Connection(normalize, basal_ganglia.input, synapse=None, function=lambda x: scipy.special.softmax(10*x))
-			# nengo.Connection(normalize, basal_ganglia.input, synapse=None, function=normalize_func)
-			# nengo.Connection(critic.output, normalize.input, synapse=None)
-			# nengo.Connection(reset, normalize.reset, synapse=None)
+			# nengo.Connection(critic.output, basal_ganglia.input, synapse=None)
 			# nengo.Connection(explore, basal_ganglia.input, synapse=None)
-			# nengo.Connection(normalize.output, basal_ganglia.input, synapse=None)
-			# nengo.Connection(basal_ganglia.output, thalamus.input, synapse=None)
-			# nengo.Connection(thalamus.output, cleanup.input, synapse=None)
-			# nengo.Connection(cleanup.output, onehot, synapse=None)
-			# nengo.Connection(thalamus.output, choice, synapse=None)
-			# nengo.Connection(choice, onehot, synapse=None)
-			# nengo.Connection(normalize, choice, synapse=None, function=normalize_func)
-			# nengo.Connection(normalize.output, choice, synapse=None)
-			# nengo.Connection(explore, choice, synapse=None)
 			# nengo.Connection(basal_ganglia.output, choice, synapse=None)
-			# nengo.Connection(choice, onehot, synapse=None)
 			nengo.Connection(critic.output, choice, synapse=None)
-			# nengo.Connection(critic.output, normalize.input, synapse=None)
-			# nengo.Connection(reset, normalize.reset, synapse=None)
-			# nengo.Connection(normalize.output, choice, synapse=None)
 			nengo.Connection(explore, choice, synapse=None)
 			nengo.Connection(choice, onehot, synapse=None)
 
@@ -1401,7 +1386,7 @@ class NQ2():
 		# print('thalamus', np.around(self.simulator.data[self.network.p_thalamus][-1], 2))
 		# print('choice', np.around(self.simulator.data[self.network.p_choice][-1], 2))
 		# print('bg_in', np.around(self.simulator.data[self.network.p_basal_ganglia_in][-1], 2))
-		# print('bg_out', np.around(self.simulator.data[self.network.p_basal_ganglia_out][-1], 2))
+		# print('bg_out', np.around(self.simulator.data[self.network.p_basal_ganglia_out][-30:], 2))
 
 		# print("Stage 3")  # choose a' with exploration and store s' and a' for next turn
 		epsilon = self.explore - self.explore_decay*self.episode
@@ -1423,10 +1408,405 @@ class NQ2():
 		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
 		# print('normalize_in', np.around(self.simulator.data[self.network.p_normalize_in][-1], 2))
 		# print('bg_in', np.around(self.simulator.data[self.network.p_basal_ganglia_in][-1], 2))
-		# print('bg_out', np.around(self.simulator.data[self.network.p_basal_ganglia_out][-1], 2))
+		# print('bg_out', np.around(self.simulator.data[self.network.p_basal_ganglia_out][-30:], 2))
 		# print('state memory', np.around(self.simulator.data[self.network.p_state_memory][-20:], 2))
 		# print('choice memory', np.around(self.simulator.data[self.network.p_choice_memory][-20:], 2))
 
+		return give, keep
+
+	def learn(self, game):
+		pass
+
+
+
+
+class NQ3():
+
+	class Environment():
+		def __init__(self, n_states, n_actions, t1, t2, t3, rng, gamma):
+			self.state = np.zeros((n_states))
+			self.n_actions = n_actions
+			self.rng = rng
+			self.reward = 0
+			self.t1 = t1
+			self.t2 = t2
+			self.t3 = t3
+			self.t_all = t1+t2+t3
+			self.replay = 0
+			self.buffer = 0
+			self.explore = np.zeros((self.n_actions))
+			self.gamma = gamma
+		def set_state(self, state):
+			self.state = state
+		def set_reward(self, player, game, friendliness):
+			rewards = game.investor_reward if player=='investor' else game.trustee_reward
+			rewards_other = game.trustee_reward if player=='investor' else game.investor_reward
+			reward = (1-friendliness)*rewards[-1]+friendliness*rewards_other[-1] if len(rewards)>0 else 0
+			self.reward = reward / (game.coins * game.match) # if player=='investor' else reward / game.coins
+			if player=='investor' and len(game.investor_give)<5:
+				self.reward *= (1-self.gamma)
+			if player=='trustee' and len(game.trustee_give)<5:
+				self.reward *= (1-self.gamma)
+		def set_explore(self, epsilon):
+			if self.rng.uniform(0, 1) < epsilon:
+				random_action = self.rng.randint(self.n_actions)
+				one_hot = np.zeros((self.n_actions))
+				one_hot[random_action] = 1e3
+				self.explore = one_hot
+			else:
+				self.explore = np.zeros((self.n_actions))
+		def get_state(self):
+			return self.state
+		def get_reward(self):
+			return self.reward
+		def get_replay(self):
+			return self.replay
+		def get_buffer(self):
+			return self.buffer
+		def get_explore(self):
+			return self.explore
+
+	def __init__(self, player, seed=0, n_actions=11, ID="NQ2", representation='turn-coin',
+			encoder_method='one-hot', learning_rate=1e-6, n_neurons=200, dt=1e-3, t1=1e-2, t2=1e-2, t3=1e-2,
+			explore_method='epsilon', explore=1, explore_decay=0.005, gamma=0.8, friendliness=0):
+		self.player = player
+		self.ID = ID
+		self.seed = seed
+		self.rng = np.random.RandomState(seed=seed)
+		self.representation = representation
+		self.n_states = get_n_inputs(representation, player, n_actions, extra_turn=1)
+		self.n_actions = n_actions
+		self.n_neurons = n_neurons
+		self.dt = dt
+		self.encoder_method = encoder_method
+		self.gamma = gamma
+		self.friendliness = friendliness
+		self.learning_rate = learning_rate
+		self.t1 = t1
+		self.t2 = t2
+		self.t3 = t3
+		self.explore_method = explore_method
+		self.explore = explore
+		self.explore_decay = explore_decay
+		self.env = self.Environment(self.n_states, self.n_actions, t1, t2, t3, self.rng, self.gamma)
+		self.decoders = np.zeros((self.n_states, self.n_actions))
+		self.network = None
+		self.simulator = None
+		self.state = None
+		self.episode = 0
+
+	def reinitialize(self, player, ID, seed):
+		self.__init__(player=player, ID=ID, seed=seed)
+		self.network = self.build_network()
+		self.simulator = nengo.Simulator(self.network, dt=self.dt, seed=self.seed, progress_bar=False)
+
+	def new_game(self, game):
+		self.env.__init__(self.n_states, self.n_actions, self.t1, self.t2, self.t3, self.rng, self.gamma)
+		self.simulator.reset(self.seed)
+		self.network.state_memory.memory = np.zeros((self.n_states))
+		self.network.choice_memory.memory = np.zeros((self.n_actions))
+		self.network.value_memory.memory = 0
+		self.episode += 1
+
+	def build_network(self):
+		n_actions = self.n_actions
+		n_states = self.n_states
+		n_neurons = self.n_neurons
+		seed = self.seed
+		network = nengo.Network(seed=seed)
+		# network.config[nengo.Ensemble].neuron_type = nengo.LIFRate()
+		network.config[nengo.Probe].synapse = None
+		intercepts = nengo.dists.Uniform(0.1, 0.1)
+		wInh = -1e5*np.ones((n_neurons*n_actions, 1))
+		if self.encoder_method=='one-hot':
+			encoders = np.zeros((n_neurons*n_actions, n_actions))
+			for n in range(encoders.shape[0]):
+				enc = np.zeros((n_actions))
+				enc[self.rng.randint(n_actions)] = [1,-1][self.rng.randint(2)]
+				encoders[n] = np.array(enc)
+		with network:
+
+			class LearningNode(nengo.Node):
+				def __init__(self, n_neurons, n_actions, decoders, learning_rate):
+					self.n_neurons = n_neurons
+					self.n_actions = n_actions
+					self.size_in = n_neurons + n_actions
+					self.size_out = n_actions
+					self.decoders = decoders
+					self.learning_rate = learning_rate
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					n_neurons = self.n_neurons
+					n_actions = self.n_actions
+					state_activities = x[:n_neurons]
+					error = x[n_neurons: n_neurons+n_actions]
+					delta = self.learning_rate * state_activities.reshape(-1, 1) * error.reshape(1, -1)
+					self.decoders[:] += delta
+					Q = np.dot(state_activities, self.decoders)
+					return Q
+
+			class StateGate(nengo.Node):
+				def __init__(self, n_states):
+					self.n_states = n_states
+					self.size_in = 2*n_states + 1
+					self.size_out = n_states
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					n_states = self.n_states
+					state_now = x[:n_states]
+					state_past = x[n_states: 2*n_states]
+					replay = int(x[-1])
+					if replay==1:  # pass current state
+						passed_state = state_past
+					else:  # pass past state
+						passed_state = state_now
+					# print(t, passed_state)
+					return passed_state
+
+			class StateMemoryNode(nengo.Node):
+				def __init__(self, n_states):
+					self.n_states = n_states
+					self.size_in = n_states + 1
+					self.size_out = n_states
+					self.memory = np.zeros((n_states))
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					state = x[:-1]
+					buffer = int(x[-1])
+					if buffer==1:  # store current input
+						self.memory = state
+					# print(t, self.memory)
+					return self.memory
+
+			class ChoiceMemoryNode(nengo.Node):
+				def __init__(self, n_actions):
+					self.n_actions = n_actions
+					self.size_in = n_actions + 1
+					self.size_out = n_actions
+					self.memory = np.zeros((n_actions))
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					choice = x[:-1]
+					buffer = int(x[-1])
+					if buffer==1:  # store current input
+						self.memory = choice
+					# print(t, self.memory)
+					return self.memory
+
+			class ValueMemoryNode(nengo.Node):
+				def __init__(self, n_actions):
+					self.n_actions = n_actions
+					self.size_in = 2*n_actions + 2
+					self.size_out = 1
+					self.memory = 0
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					n_actions = self.n_actions
+					critic = x[:n_actions]
+					choice = x[n_actions: 2*n_actions]
+					replay = int(x[-2])
+					buffer = int(x[-1])
+					if buffer==0 and replay==0:  # store the (current) Q value indexed by the (current) chosen action
+						self.memory = np.dot(critic, choice)
+					# print(t, np.around(critic, 2), np.around(choice, 2), np.around(self.memory, 2))
+					return self.memory
+
+			class ChoiceNode(nengo.Node):
+				def __init__(self, n_actions):
+					self.n_actions = n_actions
+					self.size_in = n_actions
+					self.size_out = n_actions
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					one_hot = np.zeros((self.n_actions))
+					action = np.argmax(x)
+					one_hot[action] = 1
+					# print(one_hot)
+					return one_hot
+
+			def ScalarProduct(n_neurons, n_actions, seed):
+				net = nengo.Network(seed=seed)
+				T = 1.0 / np.sqrt(2)
+				with net:
+					net.input_a = net.A = nengo.Node(size_in=1, label="input_a")
+					net.input_b = net.B = nengo.Node(size_in=n_actions, label="input_b")
+					net.output = nengo.Node(size_in=n_actions, label="output")
+					net.sq1 = nengo.networks.EnsembleArray(1, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
+					net.sq2 = nengo.networks.EnsembleArray(1, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
+					nengo.Connection(net.input_a, net.sq1.input, synapse=None, transform=T*np.ones((n_actions, 1)))
+					nengo.Connection(net.input_b, net.sq1.input, synapse=None, transform=T)
+					nengo.Connection(net.input_a, net.sq2.input, synapse=None, transform=T*np.ones((n_actions, 1)))
+					nengo.Connection(net.input_b, net.sq2.input, synapse=None, transform=-T)
+					sq1_out = net.sq1.add_output('square', np.square)
+					nengo.Connection(sq1_out, net.output, transform=.5, synapse=None)
+					sq2_out = net.sq2.add_output('square', np.square)
+					nengo.Connection(sq2_out, net.output, transform=-.5, synapse=None)
+					net.p_a = nengo.Probe(net.input_a, synapse=None)
+					net.p_b = nengo.Probe(net.input_b, synapse=None)
+					net.p_out = nengo.Probe(net.output, synapse=None)
+				return net
+
+			def VectorProduct(n_neurons, n_actions, seed):
+				net = nengo.Network(seed=seed)
+				T = 1.0 / np.sqrt(2)
+				with net:
+					net.input_a = net.A = nengo.Node(size_in=n_actions, label="input_a")
+					net.input_b = net.B = nengo.Node(size_in=n_actions, label="input_b")
+					net.output = nengo.Node(size_in=n_actions, label="output")
+					net.sq1 = nengo.networks.EnsembleArray(1, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
+					net.sq2 = nengo.networks.EnsembleArray(1, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
+					nengo.Connection(net.input_a, net.sq1.input, synapse=None, transform=T)
+					nengo.Connection(net.input_b, net.sq1.input, synapse=None, transform=T)
+					nengo.Connection(net.input_a, net.sq2.input, synapse=None, transform=T)
+					nengo.Connection(net.input_b, net.sq2.input, synapse=None, transform=-T)
+					sq1_out = net.sq1.add_output('square', np.square)
+					nengo.Connection(sq1_out, net.output, transform=.5, synapse=None)
+					sq2_out = net.sq2.add_output('square', np.square)
+					nengo.Connection(sq2_out, net.output, transform=-.5, synapse=None)
+					net.p_a = nengo.Probe(net.input_a, synapse=None)
+					net.p_b = nengo.Probe(net.input_b, synapse=None)
+					net.p_out = nengo.Probe(net.output, synapse=None)
+				return net
+
+			class ErrorGate(nengo.Node):
+				def __init__(self, n_actions):
+					self.n_actions = n_actions
+					self.size_in = n_actions + 1
+					self.size_out = n_actions
+					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
+				def step(self, t, x):
+					n_actions = self.n_actions
+					error = x[:n_actions]
+					gate = int(x[-1])
+					if gate==1:  # pass current state
+						return error
+					else:  # pass past state
+						return 0*error
+
+			# inputs from environment
+			state_input = nengo.Node(lambda t, x: self.env.get_state(), size_in=2, size_out=n_states)
+			reward = nengo.Node(lambda t, x: self.env.get_reward(), size_in=2, size_out=1)
+			replay = nengo.Node(lambda t, x: self.env.get_replay(), size_in=2, size_out=1)
+			buffer = nengo.Node(lambda t, x: self.env.get_buffer(), size_in=2, size_out=1)
+			explore = nengo.Node(lambda t, x: self.env.get_explore(), size_in=2, size_out=n_actions)
+
+			# ensembles and nodes
+			state = nengo.networks.EnsembleArray(1, n_states, seed=seed,
+				intercepts=intercepts, encoders=nengo.dists.Choice([[1]]), neuron_type=nengo.LIFRate())
+			critic = nengo.networks.EnsembleArray(1, n_actions, seed=seed, neuron_type=nengo.Direct())
+			error = ErrorGate(n_actions)
+			learning = LearningNode(n_states, n_actions, self.decoders, self.learning_rate)
+			choice = ChoiceNode(n_actions)
+			state_memory = StateMemoryNode(n_states)
+			choice_memory = ChoiceMemoryNode(n_actions)
+			value_memory = ValueMemoryNode(n_actions)
+			state_gate = StateGate(n_states)
+			replayed_value_product = VectorProduct(n_neurons, n_actions, seed=seed)
+			buffered_value_product = ScalarProduct(n_neurons, n_actions, seed=seed)
+			reward_product = ScalarProduct(n_neurons, n_actions, seed=seed)
+
+			# inputs: current state to state memory
+			nengo.Connection(state_input, state_memory[:n_states], synapse=None)
+			nengo.Connection(buffer, state_memory[-1], synapse=None)
+
+			# inputs: current state (stage 1 or 3) OR previous state (stage 2) to state population, gated by replay
+			nengo.Connection(state_input, state_gate[:n_states], synapse=None)
+			nengo.Connection(state_memory, state_gate[n_states: 2*n_states], synapse=None)
+			nengo.Connection(replay, state_gate[-1], synapse=None)
+			nengo.Connection(state_gate, state.input, synapse=None)
+
+			# state to critic connection, computes Q function, updates with DeltaQ from error population
+			state.add_neuron_output()
+			nengo.Connection(state.neuron_output, learning[:n_states], synapse=None)
+			nengo.Connection(error, learning[n_states:], synapse=None)
+			nengo.Connection(learning, critic.input, synapse=0)
+
+			# Q values sent to WTA competition in choice
+			nengo.Connection(critic.output, choice, synapse=None)
+			nengo.Connection(explore, choice, synapse=None)
+
+			# before learning (stage 1), store the Q value of the current state, indexed by the best action in the new state
+			nengo.Connection(critic.output, value_memory[:n_actions], synapse=None)
+			nengo.Connection(choice, value_memory[n_actions: 2*n_actions], synapse=None)
+			nengo.Connection(replay, value_memory[-2], synapse=None)
+			nengo.Connection(buffer, value_memory[-1], synapse=None)
+
+			# after learning (stage 3), store the action selected by the choice ensemble in choice memory
+			nengo.Connection(choice, choice_memory[:n_actions], synapse=None)
+			nengo.Connection(buffer, choice_memory[-1], synapse=None)
+
+			# during replay (stage 2), index all components of the error signal by the action stored in choice memory
+			# so that updates to the decoders only affect the dimensions corresponding to a0
+			nengo.Connection(value_memory, buffered_value_product.input_a, synapse=None)
+			nengo.Connection(choice_memory, buffered_value_product.input_b, synapse=None)
+			nengo.Connection(buffered_value_product.output, error[:n_actions], synapse=None, transform=self.gamma)
+			nengo.Connection(reward, reward_product.input_a, synapse=None)
+			nengo.Connection(choice_memory, reward_product.input_b, synapse=None)
+			nengo.Connection(reward_product.output, error[:n_actions], synapse=None)
+			nengo.Connection(critic.output, replayed_value_product.input_a, synapse=None)
+			nengo.Connection(choice_memory, replayed_value_product.input_b, synapse=None)
+			nengo.Connection(replayed_value_product.output, error[:n_actions], synapse=None, transform=-1)
+
+			# turn learning off until replay (stage 3)
+			nengo.Connection(replay, error[-1], synapse=None)
+
+			network.state_memory = state_memory
+			network.choice_memory = choice_memory
+			network.value_memory = value_memory
+			network.p_state = nengo.Probe(state.neuron_output)
+			network.p_critic = nengo.Probe(critic.output)
+			network.p_learning = nengo.Probe(learning)
+			network.p_reward = nengo.Probe(reward)
+			network.p_error = nengo.Probe(error)
+			network.p_choice = nengo.Probe(choice)
+			network.p_buffer = nengo.Probe(buffer)
+			network.p_replay = nengo.Probe(replay)
+			network.p_value_memory = nengo.Probe(value_memory)
+			network.p_choice_memory = nengo.Probe(choice_memory)
+
+		return network
+
+	def move(self, game):
+		
+		# print("1: assess the Q value of s', compute a=argmax(Q(s')), and store it in value memory")
+		self.env.set_reward(self.player, game, self.friendliness)  # reward for the this turn depends on actions taken last turn
+		game_state = get_state(self.player, self.representation, game=game, return_type='one-hot', dim=self.n_states, n_actions=self.n_actions)
+		self.env.set_state(game_state)
+		self.env.set_explore(0)
+		self.env.buffer = 0  # do not save the current state to a state memory buffer
+		self.env.replay = 0  # do not replay items from memory buffers
+		self.simulator.run(self.t1, progress_bar=False)  # store Q(s',a*)
+		# print('state', np.where(self.simulator.data[self.network.p_state][-1]>0)[0])
+		print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
+		# print('choice', np.around(self.simulator.data[self.network.p_choice][-1], 2))
+		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
+
+		# print("2: recall s, a, retrieve Q(s',a*), and R(s,a); compute Q(s,a), compute dQ, and to TD(0) with PES")
+		self.env.set_explore(0)
+		self.env.buffer = 0  # do not save the current state to a state memory buffer
+		self.env.replay = 1  # replay items from memory buffers
+		self.simulator.run(self.t2, progress_bar=False)  # replay Q(s,a), recall Q(s',a') from value memory, and learn
+		# print('state', np.where(self.simulator.data[self.network.p_state][-1]>0)[0])
+		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
+		# print('choice memory', np.around(self.simulator.data[self.network.p_choice_memory][-1], 2))
+		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
+		# print('reward', np.around(self.simulator.data[self.network.p_reward][-1], 2))
+		# print('error', np.around(self.simulator.data[self.network.p_error][-1], 2))
+
+		# print("Stage 3: choose a' with exploration and store s' and a' for next turn")
+		epsilon = self.explore - self.explore_decay*self.episode
+		self.env.set_explore(epsilon)
+		self.env.buffer = 1  # save the current state to a state memory buffer
+		self.env.replay = 0  # do not replay items from memory buffers
+		self.simulator.run(self.t3, progress_bar=False)  # choose a'
+		choice = self.simulator.data[self.network.p_choice][-1]
+		action = np.argmax(choice)
+		self.state = action / (self.n_actions-1)  # translate action into environment-appropriate signal
+		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
+		# print('state', np.where(self.simulator.data[self.network.p_state][-1]>0)[0])
+		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
+		# print('choice', np.around(self.simulator.data[self.network.p_choice][-1], 2))
+		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
 		return give, keep
 
 	def learn(self, game):
