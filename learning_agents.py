@@ -1467,7 +1467,7 @@ class NQ3():
 			return self.explore
 
 	def __init__(self, player, seed=0, n_actions=11, ID="NQ2", representation='turn-coin',
-			encoder_method='one-hot', learning_rate=1e-6, n_neurons=200, dt=1e-3, t1=1e-2, t2=1e-2, t3=1e-2,
+			encoder_method='one-hot', learning_rate=1e-6, n_neurons=300, dt=1e-3, t1=1e-2, t2=1e-2, t3=1e-2,
 			explore_method='epsilon', explore=1, explore_decay=0.005, gamma=0.8, friendliness=0):
 		self.player = player
 		self.ID = ID
@@ -1516,7 +1516,6 @@ class NQ3():
 		network = nengo.Network(seed=seed)
 		# network.config[nengo.Ensemble].neuron_type = nengo.LIFRate()
 		network.config[nengo.Probe].synapse = None
-		intercepts = nengo.dists.Uniform(0.1, 0.1)
 		wInh = -1e5*np.ones((n_neurons*n_actions, 1))
 		if self.encoder_method=='one-hot':
 			encoders = np.zeros((n_neurons*n_actions, n_actions))
@@ -1631,8 +1630,8 @@ class NQ3():
 					net.input_a = net.A = nengo.Node(size_in=1, label="input_a")
 					net.input_b = net.B = nengo.Node(size_in=n_actions, label="input_b")
 					net.output = nengo.Node(size_in=n_actions, label="output")
-					net.sq1 = nengo.networks.EnsembleArray(1, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
-					net.sq2 = nengo.networks.EnsembleArray(1, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
+					net.sq1 = nengo.networks.EnsembleArray(n_neurons, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
+					net.sq2 = nengo.networks.EnsembleArray(n_neurons, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
 					nengo.Connection(net.input_a, net.sq1.input, synapse=None, transform=T*np.ones((n_actions, 1)))
 					nengo.Connection(net.input_b, net.sq1.input, synapse=None, transform=T)
 					nengo.Connection(net.input_a, net.sq2.input, synapse=None, transform=T*np.ones((n_actions, 1)))
@@ -1653,8 +1652,8 @@ class NQ3():
 					net.input_a = net.A = nengo.Node(size_in=n_actions, label="input_a")
 					net.input_b = net.B = nengo.Node(size_in=n_actions, label="input_b")
 					net.output = nengo.Node(size_in=n_actions, label="output")
-					net.sq1 = nengo.networks.EnsembleArray(1, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
-					net.sq2 = nengo.networks.EnsembleArray(1, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
+					net.sq1 = nengo.networks.EnsembleArray(n_neurons, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
+					net.sq2 = nengo.networks.EnsembleArray(n_neurons, n_actions, radius=np.sqrt(2), neuron_type=nengo.Direct(), seed=seed)
 					nengo.Connection(net.input_a, net.sq1.input, synapse=None, transform=T)
 					nengo.Connection(net.input_b, net.sq1.input, synapse=None, transform=T)
 					nengo.Connection(net.input_a, net.sq2.input, synapse=None, transform=T)
@@ -1692,9 +1691,10 @@ class NQ3():
 
 			# ensembles and nodes
 			state = nengo.networks.EnsembleArray(1, n_states, seed=seed,
-				intercepts=intercepts, encoders=nengo.dists.Choice([[1]]), neuron_type=nengo.LIFRate())
-			critic = nengo.networks.EnsembleArray(1, n_actions, seed=seed, neuron_type=nengo.Direct())
-			error = ErrorGate(n_actions)
+				intercepts=nengo.dists.Uniform(0.1, 0.1), encoders=nengo.dists.Choice([[1]]), neuron_type=nengo.LIFRate())
+			critic = nengo.networks.EnsembleArray(n_neurons, n_actions, seed=seed, neuron_type=nengo.LIFRate())
+			# error = ErrorGate(n_actions)
+			error = nengo.networks.EnsembleArray(n_neurons, n_actions, seed=seed, radius=0.2, neuron_type=nengo.LIFRate())
 			learning = LearningNode(n_states, n_actions, self.decoders, self.learning_rate)
 			choice = ChoiceNode(n_actions)
 			state_memory = StateMemoryNode(n_states)
@@ -1718,7 +1718,7 @@ class NQ3():
 			# state to critic connection, computes Q function, updates with DeltaQ from error population
 			state.add_neuron_output()
 			nengo.Connection(state.neuron_output, learning[:n_states], synapse=None)
-			nengo.Connection(error, learning[n_states:], synapse=None)
+			nengo.Connection(error.output, learning[n_states:], synapse=None)
 			nengo.Connection(learning, critic.input, synapse=0)
 
 			# Q values sent to WTA competition in choice
@@ -1739,16 +1739,17 @@ class NQ3():
 			# so that updates to the decoders only affect the dimensions corresponding to a0
 			nengo.Connection(value_memory, buffered_value_product.input_a, synapse=None)
 			nengo.Connection(choice_memory, buffered_value_product.input_b, synapse=None)
-			nengo.Connection(buffered_value_product.output, error[:n_actions], synapse=None, transform=self.gamma)
+			nengo.Connection(buffered_value_product.output, error.input, synapse=None, transform=self.gamma)
 			nengo.Connection(reward, reward_product.input_a, synapse=None)
 			nengo.Connection(choice_memory, reward_product.input_b, synapse=None)
-			nengo.Connection(reward_product.output, error[:n_actions], synapse=None)
+			nengo.Connection(reward_product.output, error.input, synapse=None)
 			nengo.Connection(critic.output, replayed_value_product.input_a, synapse=None)
 			nengo.Connection(choice_memory, replayed_value_product.input_b, synapse=None)
-			nengo.Connection(replayed_value_product.output, error[:n_actions], synapse=None, transform=-1)
+			nengo.Connection(replayed_value_product.output, error.input, synapse=None, transform=-1)
 
 			# turn learning off until replay (stage 3)
-			nengo.Connection(replay, error[-1], synapse=None)
+			error.add_neuron_input()
+			nengo.Connection(replay, error.neuron_input, function=lambda x: 1-x, synapse=None, transform=wInh)
 
 			network.state_memory = state_memory
 			network.choice_memory = choice_memory
@@ -1757,7 +1758,7 @@ class NQ3():
 			network.p_critic = nengo.Probe(critic.output)
 			network.p_learning = nengo.Probe(learning)
 			network.p_reward = nengo.Probe(reward)
-			network.p_error = nengo.Probe(error)
+			network.p_error = nengo.Probe(error.output)
 			network.p_choice = nengo.Probe(choice)
 			network.p_buffer = nengo.Probe(buffer)
 			network.p_replay = nengo.Probe(replay)
@@ -1777,7 +1778,7 @@ class NQ3():
 		self.env.replay = 0  # do not replay items from memory buffers
 		self.simulator.run(self.t1, progress_bar=False)  # store Q(s',a*)
 		# print('state', np.where(self.simulator.data[self.network.p_state][-1]>0)[0])
-		print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
+		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
 		# print('choice', np.around(self.simulator.data[self.network.p_choice][-1], 2))
 		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
 
@@ -1792,6 +1793,8 @@ class NQ3():
 		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
 		# print('reward', np.around(self.simulator.data[self.network.p_reward][-1], 2))
 		# print('error', np.around(self.simulator.data[self.network.p_error][-1], 2))
+		print('error', np.around(np.min(self.simulator.data[self.network.p_error][-1]), 2),
+			np.around(np.max(self.simulator.data[self.network.p_error][-1]), 2))
 
 		# print("Stage 3: choose a' with exploration and store s' and a' for next turn")
 		epsilon = self.explore - self.explore_decay*self.episode
