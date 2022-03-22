@@ -1543,23 +1543,26 @@ class NQ3():
 					Q = np.dot(state_activities, self.decoders)
 					return Q
 
-			class StateGate(nengo.Node):
-				def __init__(self, n_states):
-					self.n_states = n_states
-					self.size_in = 2*n_states + 1
-					self.size_out = n_states
-					super().__init__(self.step, size_in=self.size_in, size_out=self.size_out)
-				def step(self, t, x):
-					n_states = self.n_states
-					state_now = x[:n_states]
-					state_past = x[n_states: 2*n_states]
-					replay = int(x[-1])
-					if replay==1:  # pass current state
-						passed_state = state_past
-					else:  # pass past state
-						passed_state = state_now
-					# print(t, passed_state)
-					return passed_state
+			def GatedSwitch(n_neurons, dim, seed):
+				net = nengo.Network(seed=seed)
+				wInh = -2e0*np.ones((n_neurons*dim, 1))
+				with net:
+					net.a = nengo.Node(size_in=dim)
+					net.b = nengo.Node(size_in=dim)
+					# net.gate = nengo.Node(size_in=1)
+					net.gate = nengo.Ensemble(1, 1, neuron_type=nengo.Direct())
+					net.output = nengo.Node(size_in=dim)
+					net.ens_a = nengo.networks.EnsembleArray(n_neurons, dim)
+					net.ens_b = nengo.networks.EnsembleArray(n_neurons, dim)
+					net.ens_a.add_neuron_input()
+					net.ens_b.add_neuron_input()
+					nengo.Connection(net.a, net.ens_a.input, synapse=None)
+					nengo.Connection(net.b, net.ens_b.input, synapse=None)
+					nengo.Connection(net.ens_a.output, net.output, synapse=None)
+					nengo.Connection(net.ens_b.output, net.output, synapse=None)
+					nengo.Connection(net.gate, net.ens_a.neuron_input, transform=wInh, synapse=None)
+					nengo.Connection(net.gate, net.ens_b.neuron_input, transform=wInh, function=lambda x: 1-x, synapse=None)
+				return net
 
 			def GatedMemory(n_neurons, dim, seed, n_gates=1, gain=1, synapse=0):
 				net = nengo.Network(seed=seed)
@@ -1674,7 +1677,7 @@ class NQ3():
 			state_memory = GatedMemory(n_neurons, n_states, gain=0.3, seed=seed)
 			choice_memory = GatedMemory(n_neurons, n_actions, gain=0.3, seed=seed)
 			value_memory = ValueMemoryNode(n_actions)
-			state_gate = StateGate(n_states)
+			state_gate = GatedSwitch(n_neurons, n_states, seed=seed)
 			replayed_value_product = VectorProduct(n_neurons, n_actions, seed=seed)
 			buffered_value_product = ScalarProduct(n_neurons, n_actions, seed=seed)
 			reward_product = ScalarProduct(n_neurons, n_actions, seed=seed)
@@ -1685,10 +1688,10 @@ class NQ3():
 			nengo.Connection(state_memory.output, state_memory_cleanup, synapse=None)
 
 			# inputs: current state (stage 1 or 3) OR previous state (stage 2) to state population, gated by replay
-			nengo.Connection(state_input, state_gate[:n_states], synapse=None)
-			nengo.Connection(state_memory_cleanup, state_gate[n_states: 2*n_states], synapse=None)
-			nengo.Connection(replay, state_gate[-1], synapse=None)
-			nengo.Connection(state_gate, state, synapse=None)
+			nengo.Connection(state_input, state_gate.a, synapse=None)
+			nengo.Connection(state_memory_cleanup, state_gate.b, synapse=None)
+			nengo.Connection(replay, state_gate.gate, synapse=None)
+			nengo.Connection(state_gate.output, state, synapse=None)
 
 			# state to critic connection, computes Q function, updates with DeltaQ from error population
 			nengo.Connection(state.neurons, learning[:n_states], synapse=None)
@@ -1752,7 +1755,7 @@ class NQ3():
 		self.simulator.run(self.t1, progress_bar=False)  # store Q(s',a*)
 		# print('state', np.around(self.simulator.data[self.network.p_state][-1], 2))
 		# print('state memory', np.around(self.simulator.data[self.network.p_state_memory][-10:], 2))
-		print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
+		# print('critic', np.around(self.simulator.data[self.network.p_critic][-1], 2))
 		# print('choice', np.around(self.simulator.data[self.network.p_choice][-1], 2))
 		# print('value memory', np.around(self.simulator.data[self.network.p_value_memory][-1], 2))
 
