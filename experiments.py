@@ -42,7 +42,7 @@ def play_game(game, investor, trustee):
 		game.investor_reward.append(i_keep+t_give)
 		game.trustee_reward.append(t_keep)
 	if game.train:  
-		if isinstance(investor, NQ2) or isinstance(trustee, NQ2):  # extra turn for nengo learning
+		if isinstance(investor, NQ2) or isinstance(trustee, NQ2) or isinstance(investor, NQ3) or isinstance(trustee, NQ3):  # extra turn for nengo learning
 			i_give, i_keep = investor.move(game)
 			t_give, t_keep = trustee.move(game)
 		investor.learn(game)
@@ -83,6 +83,8 @@ def train_and_test(investors, trustees, learner_plays, n_train, learner_name, op
 def make_learners(learner_type, seed, n_learners):
 	if learner_type=="tabular-q-learning":
 		learners = [TabularQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="normalized-q-learning":
+		learners = [NormalizedQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="tabular-actor-critic":
 		learners = [TabularActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="deep-q-learning":
@@ -95,8 +97,8 @@ def make_learners(learner_type, seed, n_learners):
 		learners = [NengoQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="NQ2":
 		learners = [NQ2('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
-	if learner_type=="nengo-actor-critic":
-		learners = [NengoActorCritic('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="NQ3":
+		learners = [NQ3('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	return learners
 
 def test_adaptivity(learner_type, n_learners=10, n_train=1000, seed=0, load=False):

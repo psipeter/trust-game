@@ -2,6 +2,7 @@ import numpy as np
 import random
 import pandas as pd
 import torch
+import nengo
 from scipy.stats import entropy, skew, kurtosis, normaltest
 
 def process_data(raw, agents):
@@ -154,7 +155,7 @@ def get_n_inputs(representation, player, n_actions, turns=5, coins=10, match=3, 
 	if representation=='turn-gen-opponent': return turns * (n_actions+1)
 	if representation=='turn-gen-both': return turns * (n_actions+1)**2
 
-def get_state(player, representation, game, return_type, n_actions=0, dim=0):
+def get_state(player, representation, game, return_type, n_actions=0, dim=0, rng=None, turn_basis=None, coin_basis=None):
 	index = 0
 	t = len(game.investor_give) if player=='investor' else len(game.trustee_give)
 	if representation == 'turn':
@@ -199,6 +200,12 @@ def get_state(player, representation, game, return_type, n_actions=0, dim=0):
 			index += (n_actions+1)**2
 		if opponent_gen == -1:
 			index += n_actions+1
+	if representation == "ssp":
+		c = game.coins if player=='investor' else game.investor_give[-1]*game.match
+		if t==5:
+			vector = np.zeros((dim))
+		else:
+			vector = encode_state(t, c, turn_basis, coin_basis)
 	if return_type=='index':
 		return index
 	if return_type=='one-hot':
@@ -209,6 +216,8 @@ def get_state(player, representation, game, return_type, n_actions=0, dim=0):
 		vector = np.zeros((dim))
 		vector[index] = 1
 		return torch.FloatTensor(vector)
+	if return_type=="ssp":
+		return vector
 
 def action_to_coins(player, state, n_actions, game):
 	available = game.coins if player=='investor' else game.investor_give[-1]*game.match  # coins available
@@ -222,3 +231,23 @@ def action_to_coins(player, state, n_actions, game):
 
 def generosity(player, give, keep):
 	return np.NaN if give+keep==0 and player=='trustee' else give/(give+keep)
+
+def encode_state(t, c, turn_basis, coin_basis):
+	return np.fft.ifft(turn_basis**(t*5) * coin_basis**(c*2)).real
+
+def make_unitary(v):
+	return v/np.absolute(v)
+
+def measure_sparsity(spikes1, spikes2):
+	n_neurons = spikes1.shape[0]
+	diff = []
+	quiet = 0
+	for n in range(n_neurons):
+		if spikes1[n]+spikes2[n]>0:
+			diff.append((spikes1[n]-spikes2[n]) / (spikes1[n]+spikes2[n]))
+		else:
+			quiet += 1
+	diff = np.array(diff)
+	quiet = quiet / n_neurons
+	pdiff = (np.histogram(diff)[0][0] + np.histogram(diff)[0][-1]) / diff.shape[0]
+	return 100*pdiff, 100*quiet
