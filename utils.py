@@ -232,8 +232,8 @@ def action_to_coins(player, state, n_actions, game):
 def generosity(player, give, keep):
 	return np.NaN if give+keep==0 and player=='trustee' else give/(give+keep)
 
-def encode_state(t, c, turn_basis, coin_basis):
-	return np.fft.ifft(turn_basis**(t*5) * coin_basis**(c*2)).real
+def encode_state(t, c, turn_basis, coin_basis, turn_exp=1.0, coin_exp=1.0):
+	return np.fft.ifft(turn_basis**(t*turn_exp) * coin_basis**(c*coin_exp)).real.squeeze()
 
 def make_unitary(v):
 	return v/np.absolute(v)
@@ -251,3 +251,9 @@ def measure_sparsity(spikes1, spikes2):
 	quiet = quiet / n_neurons
 	pdiff = (np.histogram(diff)[0][0] + np.histogram(diff)[0][-1]) / diff.shape[0]
 	return 100*pdiff, 100*quiet
+
+def measure_similarity(ssp1, ssp2, mode="cosine"):
+    if mode=="dot":
+        return np.sum(ssp1 * ssp2)
+    elif mode=="cosine":
+        return np.sum(ssp1 * ssp2) / (np.linalg.norm(ssp1, ord=2) * np.linalg.norm(ssp2, ord=2))

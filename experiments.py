@@ -42,7 +42,7 @@ def play_game(game, investor, trustee):
 		game.investor_reward.append(i_keep+t_give)
 		game.trustee_reward.append(t_keep)
 	if game.train:  
-		if isinstance(investor, NQ2) or isinstance(trustee, NQ2) or isinstance(investor, NQ3) or isinstance(trustee, NQ3):  # extra turn for nengo learning
+		if isinstance(investor, NQ) or isinstance(trustee, NQ):  # extra turn for nengo learning
 			i_give, i_keep = investor.move(game)
 			t_give, t_keep = trustee.move(game)
 		investor.learn(game)
@@ -95,10 +95,8 @@ def make_learners(learner_type, seed, n_learners):
 		learners = [InstanceBased('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	if learner_type=="nengo-q-learning":
 		learners = [NengoQLearning('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
-	if learner_type=="NQ2":
-		learners = [NQ2('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
-	if learner_type=="NQ3":
-		learners = [NQ3('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
+	if learner_type=="NQ":
+		learners = [NQ('investor', ID=n+seed, seed=n+seed) for n in range(n_learners)]
 	return learners
 
 def test_adaptivity(learner_type, n_learners=10, n_train=1000, seed=0, load=False):
@@ -116,7 +114,7 @@ def test_adaptivity(learner_type, n_learners=10, n_train=1000, seed=0, load=Fals
 		gift_investor = [adaptive('investor', 'gift') for _ in range(n_train)]
 		attrition_trustee = [adaptive('trustee', 'attrition') for _ in range(n_train)]
 		attrition_investor = [adaptive('investor', 'attrition') for _ in range(n_train)]
-		dfs.append(train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate_Investor"))
+		# dfs.append(train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate_Investor"))
 		dfs.append(train_and_test(cooperate_investor, learners, 'trustee', n_train, learner_name, "LearnToCooperate_Trustee"))
 		# dfs.append(train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect_Investor"))
 		# dfs.append(train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect_Trustee"))
