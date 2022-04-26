@@ -114,7 +114,7 @@ def test_adaptivity(learner_type, n_learners=10, n_train=1000, seed=0, load=Fals
 		gift_investor = [adaptive('investor', 'gift') for _ in range(n_train)]
 		attrition_trustee = [adaptive('trustee', 'attrition') for _ in range(n_train)]
 		attrition_investor = [adaptive('investor', 'attrition') for _ in range(n_train)]
-		# dfs.append(train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate_Investor"))
+		dfs.append(train_and_test(learners, cooperate_trustee, 'investor', n_train, learner_name, "LearnToCooperate_Investor"))
 		dfs.append(train_and_test(cooperate_investor, learners, 'trustee', n_train, learner_name, "LearnToCooperate_Trustee"))
 		# dfs.append(train_and_test(learners, defect_trustee, 'investor', n_train, learner_name, "LearnToDefect_Investor"))
 		# dfs.append(train_and_test(defect_investor, learners, 'trustee', n_train, learner_name, "LearnToDefect_Trustee"))

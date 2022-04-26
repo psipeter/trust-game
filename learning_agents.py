@@ -1036,7 +1036,7 @@ class NQ():
 				return 0
 
 	def __init__(self, player, seed=0, n_actions=11, ID="NQ",
-			learning_rate=1e-8, n_neurons=10000, n_array=1000, ssp_dim=100, sparsity=0.1,
+			learning_rate=1e-8, n_neurons=5000, n_array=500, ssp_dim=100, sparsity=0.1,
 			gate_mode="direct", memory_mode="array", 
 			dt=1e-3, t1=1e-1, t2=1e-1, t3=1e-1, tR=1e-2, 
 			explore_method='epsilon', explore=1, explore_decay=0.01, gamma=0.6, friendliness=0):
@@ -1081,7 +1081,7 @@ class NQ():
 			sign = -1
 		return sign * np.sqrt(1-scipy.special.betaincinv((d-1)/2.0, 0.5, 2*p))
 
-	def make_encoders(self):
+	def make_encoders(self, mode="inputs", n_samples=100):
 		encoders = []
 		for t in range(6):
 			if self.player == "investor":
@@ -1192,7 +1192,7 @@ class NQ():
 						self.memory = ssp
 					return self.memory
 
-			def StateGateMemory(n_neurons, n_array, dim, seed, n_gates=1, gain=0.5, synapse=0, mode="array"):
+			def StateGateMemory(n_neurons, n_array, dim, seed, n_gates=1, gain=0.1, synapse=0, mode="array"):
 				net = nengo.Network(seed=seed)
 				with net:
 					net.state = nengo.Node(size_in=dim)
@@ -1211,8 +1211,8 @@ class NQ():
 					elif mode=="array":
 						wInh = -1e1*np.ones((n_array*dim, 1))
 						net.gate = nengo.Ensemble(n_array, 1)
-						net.mem = nengo.networks.EnsembleArray(n_array, dim, radius=np.sqrt(1/dim))
-						net.diff = nengo.networks.EnsembleArray(n_array, dim, radius=np.sqrt(1/dim))
+						net.mem = nengo.networks.EnsembleArray(n_array, dim, radius=0.3)
+						net.diff = nengo.networks.EnsembleArray(n_array, dim, radius=0.3)
 						net.diff.add_neuron_input()
 						nengo.Connection(net.state, net.diff.input, synapse=None)
 						nengo.Connection(net.diff.output, net.mem.input, transform=gain, synapse=synapse)
@@ -1307,7 +1307,7 @@ class NQ():
 			state = nengo.Ensemble(n_neurons, ssp_dim, intercepts=self.state_intercept)
 			state_memory = StateGateMemory(n_neurons, n_array, ssp_dim, seed, mode=self.memory_mode)
 			state_gate = StateGate(n_neurons, n_array, ssp_dim, seed, mode=self.gate_mode)
-			state_cleanup = nengo.networks.AssociativeMemory(self.encoders, self.encoders, n_array)
+			# state_cleanup = nengo.networks.AssociativeMemory(self.encoders, self.encoders, n_array)
 
 			critic = nengo.networks.EnsembleArray(n_array, n_actions)
 			error = nengo.networks.EnsembleArray(n_array, n_actions, radius=0.2)
@@ -1332,9 +1332,9 @@ class NQ():
 			nengo.Connection(state_memory.output, state_gate.b, synapse=None)
 			nengo.Connection(replay_input, state_gate.gate_a, synapse=None)
 			nengo.Connection(replay_input, state_gate.gate_b, function=lambda x: 1-x, synapse=None)
-			nengo.Connection(state_gate.output, state_cleanup.input, synapse=None)
-			nengo.Connection(state_cleanup.output, state, synapse=None)
-			# nengo.Connection(state_gate.output, state, synapse=None)
+			# nengo.Connection(state_gate.output, state_cleanup.input, synapse=None)
+			# nengo.Connection(state_cleanup.output, state, synapse=None)
+			nengo.Connection(state_gate.output, state, synapse=None)
 
 			# state to critic connection, computes Q function, updates with DeltaQ from error population
 			nengo.Connection(state.neurons, learning[:n_neurons], synapse=None)
