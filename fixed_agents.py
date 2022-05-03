@@ -2,19 +2,20 @@ import numpy as np
 import random
 from utils import *
 
-class t4t():
-	def __init__(self, player, O=1, X=0.5, F=1.0, P=1.0, C=0.2, ID="t4t"):
+class T4T():
+	def __init__(self, player, seed, minO=0.9, maxO=1, minX=0.5, maxX=0.6, minF=0.9, maxF=1, minP=0.9, maxP=1, C=0.2, ID="t4tv"):
 		self.player = player
 		self.ID = ID
-		self.O = O  # initial agent state
-		self.X = X  # expected generosity of opponent
-		self.F = F  # rate of forgiveness (state increase with opponent generosity)
-		self.P = P  # rate of punishment (state decrease with opponent greed)
+		rng = np.random.RandomState(seed=seed)
+		self.O = np.around(rng.uniform(minO, maxO), decimals=2) if minO<maxO else minO # initial state of the agent
+		self.X = np.around(rng.uniform(minX, maxX), decimals=2) if minX<maxX else minX  # expected generosity of opponent (fraction of capital given, fraction of available money returned)
+		self.F = np.around(rng.uniform(minF, maxF), decimals=2) if minF<maxF else minF  # rate of forgiveness (state increase with opponent generosity)
+		self.P = np.around(rng.uniform(minP, maxP), decimals=2) if minP<maxP else minP  # rate of punishment (state decrease with opponent greed)
 		self.C = C  # comeback rate (state change if opponent had a forced skip last turn)
 		self.M = 1 if player=="investor" else 0.5	 # maximum state of agent (prevents 100% generosity as trustee)
-		self.state = O  if player=="investor" else O/2 # dynamic agent state
-		assert F >= 0, "forgiveness rate must be positive or zero"
-		assert P >= 0, "punishment rate must be positive or zero"
+		self.state = self.O if player=="investor" else self.O/2 # dynamic agent state
+		assert self.F >= 0, "forgiveness rate must be positive or zero"
+		assert self.P >= 0, "punishment rate must be positive or zero"
 
 	def new_game(self, game):
 		self.state = self.O if self.player=="investor" else self.O/2
@@ -48,24 +49,7 @@ class t4t():
 	def learn(self, game):
 		pass
 
-
-class t4tv(t4t):
-	def __init__(self, player, seed, minO=0.9, maxO=1, minX=0.5, maxX=0.6, minF=0.9, maxF=1, minP=0.9, maxP=1,C=0.2, ID="t4tv"):
-		self.player = player
-		self.ID = ID
-		rng = np.random.RandomState(seed=seed)
-		self.O = np.around(rng.uniform(minO, maxO), decimals=2) if minO<maxO else minO # initial state of the agent
-		self.X = np.around(rng.uniform(minX, maxX), decimals=2) if minX<maxX else minX  # expected generosity of opponent (fraction of capital given, fraction of available money returned)
-		self.F = np.around(rng.uniform(minF, maxF), decimals=2) if minF<maxF else minF  # rate of forgiveness (state increase with opponent generosity)
-		self.P = np.around(rng.uniform(minP, maxP), decimals=2) if minP<maxP else minP  # rate of punishment (state decrease with opponent greed)
-		self.C = C  # comeback rate (state change if opponent had a forced skip last turn)
-		self.M = 1 if player=="investor" else 0.5	 # maximum state of agent (prevents 100% generosity as trustee)
-		self.state = self.O if player=="investor" else self.O/2 # dynamic agent state
-		assert self.F >= 0, "forgiveness rate must be positive or zero"
-		assert self.P >= 0, "punishment rate must be positive or zero"
-
-
-class adaptive():
+class benchmark():
 	def __init__(self, player, ID, n_actions=11, thr_trustee=0.5, thr_investor=1.0):
 		self.player = player
 		self.ID = ID
