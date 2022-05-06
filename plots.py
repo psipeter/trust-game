@@ -6,6 +6,8 @@ import matplotlib.ticker as mtick
 import seaborn as sns
 import os
 from scipy.stats import ks_2samp, ttest_ind, entropy
+from scipy.ndimage import histogram
+from scipy.spatial.distance import jensenshannon
 
 palette = sns.color_palette("colorblind")
 sns.set(context='paper', style='white', font='CMU Serif', rc={'font.size':12, 'mathtext.fontset': 'cm', 'axes.linewidth': 0.1})
@@ -59,173 +61,121 @@ def plot_final_generosities_svo(data, agent, games=3, turn=True):
 				else:
 					sns.histplot(data=subdata, x='generosity', stat="percent", fill=False, lw=2, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[i][2*j+k])
 					axes[i][2*j+k].set(xticks=((0,1)), yticks=((0, 100)), title=f"{player} vs {opponent}")
+	axes[0][0].set(ylabel="Proself\ngenerosity")
+	axes[1][0].set(ylabel="Prosocial\ngenerosity")
 	plt.tight_layout()
 	fig.savefig(f"plots/plot_final_generosities_svo_{agent}.pdf", bbox_inches="tight", pad_inches=0)
 
-def histograms_final_generosity_all(games=3, thr_friendliness=0.1):
-
-	# plot human data in background
-	human_data = pd.read_pickle("user_data/all_users.pkl")
-	last_game = human_data['game'].unique().max()
-	human_final_games = np.arange(last_game-(games-1), last_game+1)
-	human_proself_investor_vs_greedy = human_data.query('player=="investor" & opponent_ID=="greedyT4T" & orientation=="self" & game in @human_final_games').dropna()
-	human_prosocial_investor_vs_greedy = human_data.query('player=="investor" & opponent_ID=="greedyT4T" & orientation=="social" & game in @human_final_games').dropna()
-	human_proself_investor_vs_generous = human_data.query('player=="investor" & opponent_ID=="generousT4T" & orientation=="self" & game in @human_final_games').dropna()
-	human_prosocial_investor_vs_generous = human_data.query('player=="investor" & opponent_ID=="generousT4T" & orientation=="social" & game in @human_final_games').dropna()
-	human_proself_trustee_vs_greedy = human_data.query('player=="trustee" & opponent_ID=="greedyT4T" & orientation=="self" & game in @human_final_games').dropna()
-	human_prosocial_trustee_vs_greedy = human_data.query('player=="trustee" & opponent_ID=="greedyT4T" & orientation=="social" & game in @human_final_games').dropna()
-	human_proself_trustee_vs_generous = human_data.query('player=="trustee" & opponent_ID=="generousT4T" & orientation=="self" & game in @human_final_games').dropna()
-	human_prosocial_trustee_vs_generous = human_data.query('player=="trustee" & opponent_ID=="generousT4T" & orientation=="social" & game in @human_final_games').dropna()
-
-	fig, axes = plt.subplots(nrows=2, ncols=4, figsize=((7,4)), sharey=False, sharex=True)
-	sns.histplot(data=human_proself_investor_vs_greedy, x='generosity', stat="percent", fill=True, lw=0.1, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[0][0], color='k', label="Human")
-	sns.histplot(data=human_proself_investor_vs_generous, x='generosity', stat="percent", fill=True, lw=0.1, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[0][1], color='k')
-	sns.histplot(data=human_proself_trustee_vs_greedy, x='generosity', stat="percent", fill=True, lw=0.1, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[0][2], color='k')
-	sns.histplot(data=human_proself_trustee_vs_generous, x='generosity', stat="percent", fill=True, lw=0.1, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[0][3], color='k')
-	sns.histplot(data=human_prosocial_investor_vs_greedy, x='generosity', stat="percent", fill=True, lw=0.1, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[1][0], color='k')
-	sns.histplot(data=human_prosocial_investor_vs_generous, x='generosity', stat="percent", fill=True, lw=0.1, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[1][1], color='k')
-	sns.histplot(data=human_prosocial_trustee_vs_greedy, x='generosity', stat="percent", fill=True, lw=0.1, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[1][2], color='k')
-	sns.histplot(data=human_prosocial_trustee_vs_generous, x='generosity', stat="percent", fill=True, lw=0.1, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[1][3], color='k')
-	i = 0
-	for agent in ["DQN", "IBL", "SPA"]:
-		if agent=="DQN": data = pd.read_pickle(f'agent_data/DeepQLearning_N=100_friendliness.pkl')
-		if agent=="IBL": data = pd.read_pickle(f'agent_data/InstanceBased_N=100_friendliness.pkl')
-		if agent=="SPA": data = pd.read_pickle(f'agent_data/NengoQLearning_N=100_friendliness.pkl')
+def compare_final_generosities(agents=['Human'], games=3):
+	fmt = '%.0f%%'
+	yticks = mtick.FormatStrFormatter(fmt)
+	fig, axes = plt.subplots(nrows=2, ncols=4, figsize=((7,4)), sharey=True, sharex=True)
+	for agent in agents:
+		if agent=="Random": continue
+		if agent=="Human":
+			data = pd.read_pickle("human_data/human_data.pkl")
+			fill = True
+			lw = 0.1
+			color = 'k'
+		if agent=="DQN":
+			data = pd.read_pickle(f'agent_data/DQN_N=300_games=500_svo.pkl')
+			fill = False
+			lw = 2
+			color = palette[0]
+		if agent=="IBL":
+			data = pd.read_pickle(f'agent_data/IBL_N=300_games=200_svo.pkl')
+			fill = False
+			lw = 2
+			color = palette[1]
+		if agent=="TQ":
+			data = pd.read_pickle(f'agent_data/TQ_N=300_games=200_svo.pkl')
+			fill = False
+			lw = 2
+			color = palette[1]
 		last_game = data['game'].unique().max()
 		final_games = np.arange(last_game-(games-1), last_game+1)
-		proself_investor_vs_greedy = data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness<@thr_friendliness & game in @final_games').dropna()
-		prosocial_investor_vs_greedy = data.query('player=="investor" & opponent_ID=="GreedyT4T" & friendliness>@thr_friendliness & game in @final_games').dropna()
-		proself_investor_vs_generous = data.query('player=="investor" & opponent_ID=="GenerousT4T" & friendliness<@thr_friendliness & game in @final_games').dropna()
-		prosocial_investor_vs_generous = data.query('player=="investor" & opponent_ID=="GenerousT4T" & friendliness>@thr_friendliness & game in @final_games').dropna()
-		proself_trustee_vs_greedy = data.query('player=="trustee" & opponent_ID=="GreedyT4T" & friendliness<@thr_friendliness & game in @final_games').dropna()
-		prosocial_trustee_vs_greedy = data.query('player=="trustee" & opponent_ID=="GreedyT4T" & friendliness>@thr_friendliness & game in @final_games').dropna()
-		proself_trustee_vs_generous = data.query('player=="trustee" & opponent_ID=="GenerousT4T" & friendliness<@thr_friendliness & game in @final_games').dropna()
-		prosocial_trustee_vs_generous = data.query('player=="trustee" & opponent_ID=="GenerousT4T" & friendliness>@thr_friendliness & game in @final_games').dropna()
-		sns.histplot(data=proself_investor_vs_greedy, x='generosity', stat="percent", fill=False, lw=2, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[0][0], color=palette[i], label=agent)
-		sns.histplot(data=proself_investor_vs_generous, x='generosity', stat="percent", fill=False, lw=2, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[0][1], color=palette[i])
-		sns.histplot(data=proself_trustee_vs_greedy, x='generosity', stat="percent", fill=False, lw=2, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[0][2], color=palette[i])
-		sns.histplot(data=proself_trustee_vs_generous, x='generosity', stat="percent", fill=False, lw=2, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[0][3], color=palette[i])
-		sns.histplot(data=prosocial_investor_vs_greedy, x='generosity', stat="percent", fill=False, lw=2, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[1][0], color=palette[i])
-		sns.histplot(data=prosocial_investor_vs_generous, x='generosity', stat="percent", fill=False, lw=2, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[1][1], color=palette[i])
-		sns.histplot(data=prosocial_trustee_vs_greedy, x='generosity', stat="percent", fill=False, lw=2, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[1][2], color=palette[i])
-		sns.histplot(data=prosocial_trustee_vs_generous, x='generosity', stat="percent", fill=False, lw=2, element="poly", binwidth=0.1, binrange=[0,1], ax=axes[1][3], color=palette[i])
-		i += 1
-	# ylims = plt.gca().get_ylim()
-	# fmt = '%.0f%%' # Format you want the ticks, e.g. '40%'
-	# yticks = mtick.FormatStrFormatter(fmt)
-	# axes[0][0].yaxis.set_major_formatter(yticks)
-	# axes[0][1].yaxis.set_major_formatter(yticks)
-	# axes[0][2].yaxis.set_major_formatter(yticks)
-	# axes[0][3].yaxis.set_major_formatter(yticks)
-	# axes[1][0].yaxis.set_major_formatter(yticks)
-	# axes[1][1].yaxis.set_major_formatter(yticks)
-	# axes[1][2].yaxis.set_major_formatter(yticks)
-	# axes[1][3].yaxis.set_major_formatter(yticks)
-	axes[0][0].set(yticks=(()), xticks=((0,1)), ylabel="Proself\nPercent", title="Investor vs. Greedy")
-	axes[0][1].set(yticks=(()), xticks=((0,1)), ylabel=None, title="Investor vs. Generous")
-	axes[0][2].set(yticks=(()), xticks=((0,1)), ylabel=None, title="Trustee vs. Greedy")
-	axes[0][3].set(yticks=(()), xticks=((0,1)), ylabel=None, title="Trustee vs. Generous")
-	axes[1][0].set(yticks=(()), xticks=((0,1)), ylabel="Prosocial\nPercent")
-	axes[1][1].set(yticks=(()), xticks=((0,1)), ylabel=None)
-	axes[1][2].set(yticks=(()), xticks=((0,1)), ylabel=None)
-	axes[1][3].set(yticks=(()), xticks=((0,1)), ylabel=None)
+		for i, orientation in enumerate(["proself", "prosocial"]):
+			for j, player in enumerate(["investor", "trustee"]):
+				for k, opponent in enumerate(["greedy", "generous"]):
+					query_string = "player==@player & opponent==@opponent & orientation==@orientation & game in @final_games"
+					subdata = data.query(query_string)
+					sns.histplot(data=subdata, x='generosity', stat="percent", color=color, label=agent, ax=axes[i][2*j+k],
+						fill=fill, lw=lw, element="poly", binwidth=0.1, binrange=[0,1])
+					axes[i][2*j+k].set(xticks=((0,1)), yticks=((0, 100)))
+					if i==0: axes[i][2*j+k].set(title=f"{player} vs {opponent}")
 	axes[0][0].legend()
+	axes[0][0].set(ylabel="proself")
+	axes[1][0].set(ylabel="prosocial")
+	axes[0][0].yaxis.set_major_formatter(yticks)
+	axes[0][1].yaxis.set_major_formatter(yticks)
 	plt.tight_layout()
-	# sns.despine(left=True, right=True, top=True)
-	fig.savefig(f"plots/histograms_final_generosity_all.svg")
-	fig.savefig(f"plots/histograms_final_generosity_all.pdf")
+	fig.savefig(f"plots/compare_final_generosities.pdf", bbox_inches="tight", pad_inches=0)
 
-# histograms_final_generosity_all()
-
-def lineplots_learning_similarity(load=False, games=3, thr=0.1):
+def compare_convergence(agents=['Human'], load=False, last_n_games=3, metric='KS'):
 	if not load:
 		dfs = []
-		columns = ('agent', 'ID', 'player', 'opponent', 'orientation', 'game', 'generosities', 'sim_final')
-		for agent in ["Human", "DQN", "IBL", "SPA"]:
-			if agent=="Human": data = pd.read_pickle("user_data/all_users.pkl")
-			if agent=="DQN": data = pd.read_pickle(f'agent_data/DeepQLearning_N=100_friendliness.pkl')
-			if agent=="IBL": data = pd.read_pickle(f'agent_data/InstanceBased_N=100_friendliness.pkl')
-			if agent=="SPA": data = pd.read_pickle(f'agent_data/NengoQLearning_N=100_friendliness.pkl')
+		columns = ('agent', 'ID', 'player', 'opponent', 'orientation', 'game', 'sim_final')
+		for agent in agents:
+			if agent=="Human": data = pd.read_pickle("human_data/human_data.pkl")
+			if agent=="Random": data = pd.read_pickle("agent_data/DQN_N=100_games=100_svo_random.pkl")
+			if agent=="TQ": data = pd.read_pickle("agent_data/TQ_N=300_games=200_svo.pkl")
+			if agent=="DQN": data = pd.read_pickle(f'agent_data/DQN_N=300_games=500_svo.pkl')
+			if agent=="IBL": data = pd.read_pickle(f'agent_data/IBL_N=300_games=200_svo.pkl')
 			last_game = data['game'].unique().max()
-			final_games = np.arange(last_game-(games-1), last_game+1)
+			final_games = np.arange(last_game-(last_n_games-1), last_game+1)
 			for player in ["investor", "trustee"]:
-				if player=="investor": player_string = 'player=="investor"'
-				if player=="trustee": player_string = 'player=="trustee"'
 				for opponent in ["greedy", "generous"]:
-					if agent=="Human" and opponent=="greedy": opponent_string = 'opponent_ID=="greedyT4T"'
-					if agent=="Human" and opponent=="generous": opponent_string = 'opponent_ID=="generousT4T"'
-					if agent!="Human" and opponent=="greedy": opponent_string = 'opponent_ID=="GreedyT4T"'
-					if agent!="Human" and opponent=="generous": opponent_string = 'opponent_ID=="GenerousT4T"'
 					for orientation in ["proself", "prosocial"]:
-						if agent=="Human" and orientation=="proself": orientation_string = 'orientation=="self"'
-						if agent=="Human" and orientation=="prosocial": orientation_string = 'orientation=="social"'
-						if agent!="Human" and orientation=="proself": orientation_string = 'friendliness<@thr'
-						if agent!="Human" and orientation=="prosocial": orientation_string = 'friendliness>@thr'
-						group_string = player_string + ' & ' + opponent_string + ' & ' + orientation_string
-						group_data = data.query(group_string)
+						query_string = "player==@player & opponent==@opponent & orientation==@orientation"
+						group_data = data.query(query_string)
 						individuals = group_data['ID'].unique()
 						for ID in individuals:
-							id_string = "ID == @ID"
-							individual_data = group_data.query(id_string)
+							individual_data = group_data.query("ID == @ID")
 							final_games_string = "game in @final_games"
-							generosities_final = individual_data.query(final_games_string).dropna()['generosity'].to_numpy()
+							final_gens = individual_data.query(final_games_string).dropna()['generosity'].to_numpy()
+							if metric=='JS':
+								final_histogram = histogram(final_gens, min=0, max=1, bins=11) / len(final_gens)
 							for game in range(last_game+1):
-								game_string = "game == @game"
-								game_data = individual_data.query(game_string)
-								generosities = game_data.dropna()['generosity'].to_numpy()
-								sim_final = ks_2samp(generosities, generosities_final)[0]
+								game_data = individual_data.query("game == @game")
+								current_gens = game_data.dropna()['generosity'].to_numpy()
+								if metric=='JS':
+									current_histogram = histogram(current_gens, min=0, max=1, bins=11) / len(current_gens)
+									sim_final = 1 - jensenshannon(current_histogram, final_histogram)
+								if metric=='KS':
+									sim_final = 1 - ks_2samp(current_gens, final_gens)[0]
 								rescaled_game = game / (last_game+1)
-								dfs.append(pd.DataFrame([[
-									agent, ID, player, opponent, orientation, rescaled_game, generosities, sim_final]],
-									columns=columns))
+								dfs.append(pd.DataFrame([[agent, ID, player, opponent, orientation, rescaled_game, sim_final]], columns=columns))
 		data = pd.concat(dfs, ignore_index=True)
-		data.to_pickle("analysis_data/dynamics.pkl")
+		data.to_pickle(f"analysis_data/convergence.pkl")
 		print(data)
 	else:
-		data = pd.read_pickle("analysis_data/dynamics.pkl")
+		data = pd.read_pickle(f"analysis_data/convergence.pkl")
 
 	fig, axes = plt.subplots(nrows=2, ncols=4, figsize=((7,4)), sharey=True, sharex=True)
-	subdata = data.query("agent=='Human'")
-	sns.lineplot(data=subdata.query("player=='investor' & opponent=='greedy' & orientation=='proself'"), x="game", y='sim_final', ax=axes[0][0], color='k', label="Human")
-	sns.lineplot(data=subdata.query("player=='investor' & opponent=='generous' & orientation=='proself'"), x="game", y='sim_final', ax=axes[0][1], color='k')
-	sns.lineplot(data=subdata.query("player=='trustee' & opponent=='greedy' & orientation=='proself'"), x="game", y='sim_final', ax=axes[0][2], color='k')
-	sns.lineplot(data=subdata.query("player=='trustee' & opponent=='generous' & orientation=='proself'"), x="game", y='sim_final', ax=axes[0][3], color='k')
-	sns.lineplot(data=subdata.query("player=='investor' & opponent=='greedy' & orientation=='prosocial'"), x="game", y='sim_final', ax=axes[1][0], color='k')
-	sns.lineplot(data=subdata.query("player=='investor' & opponent=='generous' & orientation=='prosocial'"), x="game", y='sim_final', ax=axes[1][1], color='k')
-	sns.lineplot(data=subdata.query("player=='trustee' & opponent=='greedy' & orientation=='prosocial'"), x="game", y='sim_final', ax=axes[1][2], color='k')
-	sns.lineplot(data=subdata.query("player=='trustee' & opponent=='generous' & orientation=='prosocial'"), x="game", y='sim_final', ax=axes[1][3], color='k')
-	i = 0
-	for agent in ["DQN", "IBL", "SPA"]:
-		subdata = data.query("agent==@agent")
-		sns.lineplot(data=subdata.query("player=='investor' & opponent=='greedy' & orientation=='proself'"), x="game", y='sim_final', ax=axes[0][0], color=palette[i], label=agent)
-		sns.lineplot(data=subdata.query("player=='investor' & opponent=='generous' & orientation=='proself'"), x="game", y='sim_final', ax=axes[0][1], color=palette[i])
-		sns.lineplot(data=subdata.query("player=='trustee' & opponent=='greedy' & orientation=='proself'"), x="game", y='sim_final', ax=axes[0][2], color=palette[i])
-		sns.lineplot(data=subdata.query("player=='trustee' & opponent=='generous' & orientation=='proself'"), x="game", y='sim_final', ax=axes[0][3], color=palette[i])
-		sns.lineplot(data=subdata.query("player=='investor' & opponent=='greedy' & orientation=='prosocial'"), x="game", y='sim_final', ax=axes[1][0], color=palette[i])
-		sns.lineplot(data=subdata.query("player=='investor' & opponent=='generous' & orientation=='prosocial'"), x="game", y='sim_final', ax=axes[1][1], color=palette[i])
-		sns.lineplot(data=subdata.query("player=='trustee' & opponent=='greedy' & orientation=='prosocial'"), x="game", y='sim_final', ax=axes[1][2], color=palette[i])
-		sns.lineplot(data=subdata.query("player=='trustee' & opponent=='generous' & orientation=='prosocial'"), x="game", y='sim_final', ax=axes[1][3], color=palette[i])
-		i += 1
-	axes[0][0].set(yticks=((0, 1)), xticks=((0, 1)), xlabel='game', ylabel="Proself\nSimilarity to Final Gen.", title="Investor vs. Greedy")
-	axes[0][1].set(yticks=((0, 1)), xticks=((0, 1)), xlabel='game', ylabel=None, title="Investor vs. Generous")
-	axes[0][2].set(yticks=((0, 1)), xticks=((0, 1)), xlabel='game', ylabel=None, title="Trustee vs. Greedy")
-	axes[0][3].set(yticks=((0, 1)), xticks=((0, 1)), xlabel='game', ylabel=None, title="Trustee vs. Generous")
-	axes[1][0].set(yticks=((0, 1)), xticks=((0, 1)), xlabel='game', ylabel="Prosocial\nSimilarity to Final Gen.")
-	axes[1][1].set(yticks=((0, 1)), xticks=((0, 1)), xlabel='game', ylabel=None)
-	axes[1][2].set(yticks=((0, 1)), xticks=((0, 1)), xlabel='game', ylabel=None)
-	axes[1][3].set(yticks=((0, 1)), xticks=((0, 1)), xlabel='game', ylabel=None)
-	axes[0][0].set_xticklabels(['first', 'last'])
-	axes[0][1].set_xticklabels(['first', 'last'])
-	axes[0][2].set_xticklabels(['first', 'last'])
-	axes[0][3].set_xticklabels(['first', 'last'])
-	axes[1][0].set_xticklabels(['first', 'last'])
-	axes[1][1].set_xticklabels(['first', 'last'])
-	axes[1][2].set_xticklabels(['first', 'last'])
-	axes[1][3].set_xticklabels(['first', 'last'])
+	for agent in ["Human", "TQ", "DQN", "IBL", "Random"]:
+		if agent=="Human": color = 'k'
+		if agent=="DQN": color = palette[0]
+		if agent=="IBL": color = palette[1]
+		if agent=="TQ": color = palette[3]
+		if agent=="Random": color = palette[4]
+		for i, orientation in enumerate(["proself", "prosocial"]):
+			for j, player in enumerate(["investor", "trustee"]):
+				for k, opponent in enumerate(["greedy", "generous"]):
+					query_string = "player==@player & opponent==@opponent & orientation==@orientation & agent==@agent"
+					subdata = data.query(query_string)
+					sns.lineplot(data=subdata, x='game', y='sim_final', color=color, label=agent, ax=axes[i][2*j+k])
+					axes[i][2*j+k].set(xticks=((0,1)), yticks=((0, 1)))
+					axes[i][2*j+k].set_xticklabels(['first', 'last'])
+					if i==0: axes[i][2*j+k].set(title=f"{player} vs {opponent}")
 	axes[0][0].legend()
+	axes[0][1].get_legend().remove()
+	axes[0][2].get_legend().remove()
+	axes[0][3].get_legend().remove()
+	axes[1][0].get_legend().remove()
+	axes[1][1].get_legend().remove()
+	axes[1][2].get_legend().remove()
+	axes[1][3].get_legend().remove()
+	axes[0][0].set(ylabel="proself\nsimilarity to final gen.")
+	axes[1][0].set(ylabel="prosocial\nsimilarity to final gen.")
 	plt.tight_layout()
-	fig.savefig(f"plots/lineplots_learning_similarity.svg", bbox_inches="tight", pad_inches=0)
-	fig.savefig(f"plots/lineplots_learning_similarity.pdf", bbox_inches="tight", pad_inches=0)
-
-
-# lineplots_learning_similarity(False)
+	fig.savefig(f"plots/compare_convergence.pdf", bbox_inches="tight", pad_inches=0)

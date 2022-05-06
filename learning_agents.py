@@ -14,8 +14,8 @@ from utils import *
 class TQ():
 	# Tabular Q-learning agent
 	def __init__(self, player, ID="TQ", seed=0, n_actions=11, n_states=155,
-			learning_rate=1, gamma=0.6, epsilon_decay=0.005,
-			svo_min=0.1, svo_max=0.4, orientation="proself",
+			learning_rate=1, gamma=0.8, epsilon_decay=0.02,
+			svo_min=0.1, svo_max=0.3, orientation="proself",
 			normalize=True, randomize=False):
 		self.player = player
 		self.ID = ID
@@ -28,7 +28,7 @@ class TQ():
 		self.svo_min = svo_min
 		self.svo_max = svo_max
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.6, 0.9)
+			self.gamma = self.rng.uniform(0.6, 1.0)
 			self.learning_rate = self.rng.uniform(0.8, 1.2)
 			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
 			self.svo = 0 if self.orientation=="proself" else self.rng.uniform(self.svo_min, self.svo_max)
@@ -61,7 +61,8 @@ class TQ():
 		# Compute action probabilities for the current state
 		Q_state = self.Q[game_state]
 		# Sample action from q-values in the current state
-		epsilon = 1 - self.episode * self.epsilon_decay
+		# epsilon = 1 - self.episode * self.epsilon_decay
+		epsilon = np.exp(-self.episode*self.epsilon_decay)
 		if self.rng.uniform(0, 1) < epsilon:
 			action = self.rng.randint(self.n_actions)
 		else:
@@ -76,21 +77,19 @@ class TQ():
 
 	def learn(self, game):
 		self.episode += 1
-		rewards = get_rewards(self.player, self.svo, game, self.normalize)
+		rewards = get_rewards(self.player, self.svo, game, self.normalize, self.gamma)
 		for t in np.arange(game.turns):
 			state = self.state_history[t]
 			action = self.action_history[t]
 			value = self.Q[state, action]
 			if t==(game.turns-1):
-				delta = rewards[t] - value
+				next_value = 0
 			else:
 				next_state = self.state_history[t+1]
 				next_action = self.action_history[t+1]
 				next_value = np.max(self.Q[next_state])  # Q-learning
 				# next_value = self.Q[next_state, next_action]  # SARSA
-				dR = (1-self.gamma)*rewards[t] if self.normalize else rewards[t]
-				dT = self.gamma*next_value
-				delta = dR + dT - value
+			delta = rewards[t] + self.gamma*next_value - value
 			self.Q[state, action] += self.learning_rate * delta
 
 
@@ -103,11 +102,17 @@ class DQN():
 			self.input = torch.nn.Linear(n_states, n_neurons)
 			self.hidden = torch.nn.Linear(n_neurons, n_neurons)
 			self.output = torch.nn.Linear(n_neurons, n_actions)
+			self.apply(self.init_params)
 		def forward(self, x):
 			x = torch.nn.functional.relu(self.input(x))
 			x = torch.nn.functional.relu(self.hidden(x))
 			x = self.output(x)
 			return x
+		def init_params(self, m):
+			classname = m.__class__.__name__
+			if classname.find("Linear") != -1:
+				m.weight.data.normal_(0, 1)
+				m.weight.data *= 1 / torch.sqrt(m.weight.data.pow(2).sum(1, keepdim=True))
 
 	class ReplayMemory:
 		def __init__(self, capacity):
@@ -122,10 +127,10 @@ class DQN():
 		def __len__(self):
 			return len(self.memory)
 
-	def __init__(self, player, seed=0, n_states=155, n_actions=11, n_neurons=30, ID="DQN",
-			learning_rate=2e-2, gamma=0.99, epsilon_decay=0.0025, batch_size=30, target_update=100,
-			svo_min=0.1, svo_max=0.4, orientation="proself",
-			normalize=False, randomize=False):
+	def __init__(self, player, seed=0, n_states=100, n_actions=11, n_neurons=20, ID="DQN",
+			learning_rate=1e-2, gamma=0.8, epsilon_decay=0.002, batch_size=10, target_update=50,
+			svo_min=0.1, svo_max=0.3, orientation="proself", representation="ssp", batch_learn=False,
+			normalize=True, randomize=False):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -139,9 +144,13 @@ class DQN():
 		self.target_update = target_update
 		self.svo_min = svo_min
 		self.svo_max = svo_max
+		self.representation = representation
+		self.batch_learn = batch_learn
+		self.turn_basis = make_unitary(np.fft.fft(nengo.dists.UniformHypersphere().sample(1, n_states, rng=self.rng)))
+		self.coin_basis = make_unitary(np.fft.fft(nengo.dists.UniformHypersphere().sample(1, n_states, rng=self.rng)))
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.6, 0.9)
-			self.learning_rate = self.rng.uniform(1e-2, 3e-2)
+			self.gamma = self.rng.uniform(0.6, 1.0)
+			self.learning_rate = self.rng.uniform(3e-2, 1e-1)
 			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
 			self.svo = 0 if self.orientation=="proself" else self.rng.uniform(self.svo_min, self.svo_max)
 		else:
@@ -152,10 +161,10 @@ class DQN():
 		torch.manual_seed(seed)
 		self.epsilon_decay = epsilon_decay
 		self.critic = self.Critic(self.n_neurons, self.n_states, self.n_actions)
-		self.target = self.Critic(self.n_neurons, self.n_states, self.n_actions)
+		self.target = self.Critic(self.n_neurons, self.n_states, self.n_actions) if self.batch_learn else None
 		self.optimizer = torch.optim.Adam(self.critic.parameters(), self.learning_rate)
-		# self.value_history = []
-		self.replay_memory = self.ReplayMemory(10000)
+		self.value_history = []
+		self.replay_memory = self.ReplayMemory(10000) if self.batch_learn else None
 		self.state_history = []
 		self.action_history = []
 		self.state = None
@@ -163,26 +172,31 @@ class DQN():
 
 	def reinitialize(self, player):
 		self.player = player
+		torch.manual_seed(self.seed)
 		self.critic = self.Critic(self.n_neurons, self.n_states, self.n_actions)
-		self.target = self.Critic(self.n_neurons, self.n_states, self.n_actions)
+		self.target = self.Critic(self.n_neurons, self.n_states, self.n_actions) if self.batch_learn else None
 		self.optimizer = torch.optim.Adam(self.critic.parameters(), self.learning_rate)
-		self.replay_memory = self.ReplayMemory(10000)
-		# self.value_history = []
+		self.replay_memory = self.ReplayMemory(10000) if self.batch_learn else None
+		self.value_history = []
 		self.state_history = []
 		self.action_history = []
 		self.state = None
 		self.episode = 0
 
 	def new_game(self, game):
-		# self.value_history.clear()
+		self.value_history.clear()
 		self.state_history.clear()
 		self.action_history.clear()
 
 	def move(self, game):
-		game_state = get_state(self.player, game, agent="DQN", dim=self.n_states)
+		game_state = get_state(self.player, game, agent="DQN", dim=self.n_states,
+			turn_basis=self.turn_basis, coin_basis=self.coin_basis, representation=self.representation)
 		# Estimate the value of the current game_state
-		with torch.no_grad():
-			values = self.critic(game_state)
+		if self.batch_learn:
+			with torch.no_grad():
+				values = self.critic(game_state)
+		else:
+			values = self.critic(game_state)			
 		# Choose and action based on thees values and some exploration strategy
 		epsilon = 1 - self.episode * self.epsilon_decay
 		if self.rng.uniform(0, 1) < epsilon:
@@ -192,74 +206,73 @@ class DQN():
 		# translate action into environment-appropriate signal
 		self.state = action.detach().numpy() / (self.n_actions-1)
 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
-		# self.value_history.append(values)
-		# self.value_history.append(values[action_idx])
+		if self.batch_learn:
+			self.value_history.append(values)
+		else:
+			self.value_history.append(values[action_idx])
 		self.state_history.append(game_state)
 		self.action_history.append(torch.LongTensor([action_idx]))
+		# self.action_history.append(action_idx)
 		return give, keep
 
 	def learn(self, game):
 		self.episode += 1
-		rewards = get_rewards(self.player, self.svo, game, self.normalize)
-		for t in range(game.turns):
-			state = self.state_history[t]
-			action = self.action_history[t]
-			reward = torch.FloatTensor([rewards[t]])
-			next_state = self.state_history[t+1] if t<game.turns-1 else torch.FloatTensor(np.zeros((self.n_states)))
-			self.replay_memory.push((state, action, next_state, reward))
-		if len(self.replay_memory) < self.batch_size: return
-		transitions = self.replay_memory.sample(self.batch_size)
-		batch_state, batch_action, batch_next_state, batch_reward = zip(*transitions)
-		batch_state = torch.reshape(torch.cat(batch_state), shape=(self.batch_size, self.n_states))
-		batch_action = torch.reshape(torch.cat(batch_action), shape=(self.batch_size, 1))
-		batch_next_state = torch.reshape(torch.cat(batch_next_state), shape=(self.batch_size, self.n_states))
-		batch_reward = torch.cat(batch_reward)
-		current_values = self.critic(batch_state).gather(1, batch_action).squeeze()
-		expected_rewards = self.target(batch_next_state).detach().max(1)[0]
-		# print(self.critic(batch_state))
-		# print(batch_action)
-		# print(current_values)
-		# print(expected_rewards)
-		# print(batch_reward)
-		# raise
-		if self.normalize:
-			pass
+		rewards = get_rewards(self.player, self.svo, game, self.normalize, self.gamma)
+		if self.batch_learn:
+			for t in range(game.turns):
+				state = self.state_history[t]
+				action = self.action_history[t]
+				reward = torch.FloatTensor([rewards[t]])
+				if t<game.turns-1:
+					next_state = self.state_history[t+1]
+				else:
+					next_state = torch.FloatTensor(np.zeros((self.n_states)))
+				self.replay_memory.push((state, action, next_state, reward))
+			if len(self.replay_memory) < self.batch_size: return
+			transitions = self.replay_memory.sample(self.batch_size)
+			batch_state, batch_action, batch_next_state, batch_reward = zip(*transitions)
+			batch_state = torch.reshape(torch.cat(batch_state), shape=(self.batch_size, self.n_states))
+			batch_action = torch.reshape(torch.cat(batch_action), shape=(self.batch_size, 1))
+			batch_next_state = torch.reshape(torch.cat(batch_next_state), shape=(self.batch_size, self.n_states))
+			batch_reward = torch.cat(batch_reward)
+			current_values = self.critic(batch_state).gather(1, batch_action).squeeze()
+			# mask the "final" states, which are tensors with all zeroses
+			non_final_mask = torch.tensor(tuple(map(lambda s: torch.count_nonzero(s)>0, batch_next_state)), dtype=torch.bool)
+			non_final_next_states = torch.cat([s for s in batch_next_state if torch.count_nonzero(s)>0])
+			non_final_next_states = torch.reshape(non_final_next_states, shape=(torch.sum(non_final_mask).item(), self.n_states))
+			expected_rewards = torch.zeros(self.batch_size)
+			expected_rewards[non_final_mask] = self.target(non_final_next_states).detach().max(1)[0]
+			expected_values = batch_reward + self.gamma*expected_rewards
+			masked_rewards = torch.zeros(self.batch_size)
+			masked_rewards[non_final_mask] = batch_reward[non_final_mask]
+			loss = torch.nn.functional.huber_loss(current_values, expected_values)
+			self.optimizer.zero_grad()
+			loss.backward()
+			self.optimizer.step()
+			if self.episode % self.target_update == 0:
+				self.target.load_state_dict(self.critic.state_dict())
 		else:
-			expected_values = batch_reward + (self.gamma * expected_rewards)
-		# print(expected_values)
-		# loss = torch.nn.functional.mse_loss(current_values, expected_values)
-		loss = torch.nn.functional.huber_loss(current_values, expected_values)
-		self.optimizer.zero_grad()
-		loss.backward()
-		self.optimizer.step()
-		if self.episode % self.target_update == 0:
-			self.target.load_state_dict(self.critic.state_dict())
-
-	# def learn(self, game):
-	# 	self.episode += 1
-	# 	rewards = get_rewards(self.player, self.svo, game, self.normalize)
-	# 	losses = []
-	# 	for t in np.arange(game.turns):
-	# 		action = self.action_history[t]
-	# 		value = self.value_history[t][action]
-	# 		next_action = self.action_history[t+1] if t<game.turns-1 else 0
-	# 		next_value = torch.max(self.value_history[t+1]) if t<game.turns-1 else 0
-	# 		# next_value = self.value_history[t+1][next_action] if t<game.turns-1 else 0
-	# 		dR = (1-self.gamma)*torch.FloatTensor([rewards[t]]) if self.normalize else torch.FloatTensor([rewards[t]])
-	# 		dT = self.gamma*next_value
-	# 		delta = dR + dT - value
-	# 		losses.append(delta**2)
-	# 	loss = torch.stack(losses).sum()
-	# 	self.optimizer.zero_grad()
-	# 	loss.backward()
-	# 	self.optimizer.step()
-
+			losses = []
+			for t in np.arange(game.turns):
+				value = self.value_history[t]
+				reward = torch.FloatTensor([rewards[t]])
+				if t==(game.turns-1):
+					next_value = 0
+				else:
+					next_value = torch.max(self.value_history[t+1])
+				delta = reward + self.gamma*next_value - value
+				losses.append(delta**2)
+			loss = torch.stack(losses).sum()
+			self.optimizer.zero_grad()
+			loss.backward()
+			self.optimizer.step()
 
 class IBL():
 
 	class Chunk():
-		def __init__(self, state, action, reward, value, episode, decay, epsilon):
-			self.state = state
+		def __init__(self, turn, coins, action, reward, value, episode, decay, epsilon):
+			self.turn = turn
+			self.coins = coins
 			self.action = action
 			self.reward = reward
 			self.value = value
@@ -273,58 +286,48 @@ class IBL():
 				activation += (episode - t)**(-self.decay)
 			return np.log(activation) + rng.logistic(loc=0.0, scale=self.epsilon)
 
-	def __init__(self, player, seed=0, n_actions=11, ID="IBL", representation='turn-coin',
-			populate_method='state-similarity', value_method='next-value',
-			thr_activation=0, thr_action=0.8, thr_state=0.9, friendliness=0, randomize=False,
-			learning_method='TD0', gamma=0.99, decay=0.5, epsilon=0.3, biased_exploration=False, bias=0.75,
-			explore_method='epsilon', explore_start=1, explore_decay=0.007, explore_decay_method='linear'):
+	def __init__(self, player, ID="IBL", seed=0, n_actions=11,
+			gamma=0.8, epsilon_decay=0.02,
+			svo_min=0.1, svo_max=0.3, orientation="proself",
+			activation_decay=0.5, activation_noise=0.3, thr_activation=0,
+			normalize=True, randomize=False):
+
 		self.player = player
 		self.ID = ID
 		self.seed = seed
-		self.rng = np.random.RandomState(seed=seed)
-		self.representation = representation
-		# self.n_actions = 11 if self.player=='investor' else 31
-		self.n_actions = n_actions
-		self.n_inputs = get_n_inputs(representation, player, self.n_actions)
-		self.learning_method = learning_method
 		self.randomize = randomize
+		self.normalize = normalize
+		self.rng = np.random.RandomState(seed=seed)
+		self.n_actions = n_actions
+		self.svo_min = svo_min
+		self.svo_max = svo_max
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.5, 1)
-			self.decay = self.rng.uniform(0.4, 0.6)
-			self.epsilon = self.rng.uniform(0.2, 0.4)
-			# self.friendliness = self.rng.uniform(0, 0.4)
-			# self.friendliness = 0
-			if self.player=='investor':
-				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.2
-			elif self.player=='trustee':
-				if self.rng.uniform(0,1)<0.5: self.friendliness = 0
-				else: self.friendliness = 0.4 #0.3
+			self.gamma = self.rng.uniform(0.6, 1)
+			self.activation_decay = self.rng.uniform(0.4, 0.6)
+			self.activation_noise = self.rng.uniform(0.2, 0.4)
+			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
+			self.svo = 0 if self.orientation=="proself" else self.rng.uniform(self.svo_min, self.svo_max)
 		else:
 			self.gamma = gamma
-			self.friendliness = friendliness
-			self.decay = decay  # decay rate for memory chunks
-			self.epsilon = epsilon  # logistic noise in memory retrieval
+			self.activation_decay = activation_decay
+			self.activation_noise = activation_noise
+			self.orientation = orientation
+			self.svo = 0 if self.orientation=="proself" else self.svo_max
 		self.thr_activation = thr_activation  # activation threshold for retrieval (loading chunks from declarative into working memory)
-		self.thr_action = thr_action  # action similarity threshold for retrieval (loading chunks from declarative into working memory)
-		# self.thr_state = thr_state  # state similarity threshold for retrieval (loading chunks from declarative into working memory)
-		self.thr_state = 1 - 1/self.n_actions
-		self.explore_start = explore_start  # probability of random action, for exploration
-		self.explore_decay = explore_decay
-		self.explore_method = explore_method
-		self.explore_decay_method = explore_decay_method
-		self.biased_exploration = biased_exploration
-		self.bias = bias
-		self.populate_method = populate_method  # method for determining whether a chunk in declaritive memory meets threshold
-		self.value_method = value_method  # method for assigning value to chunks during learning
+		self.declarative_memory = []
+		self.working_memory = []
+		self.learning_memory = []
+		self.epsilon_decay = epsilon_decay
+		self.state = None
+		self.episode = 0
+
+	def reinitialize(self, player):
+		self.player = player
 		self.declarative_memory = []
 		self.working_memory = []
 		self.learning_memory = []
 		self.state = None
-		self.episode = 0  # for tracking activation within / across games
-
-	def reinitialize(self, player, ID, seed):
-		self.__init__(player=player, ID=ID, seed=seed)
+		self.episode = 0
 
 	def new_game(self, game):
 		self.working_memory.clear()
@@ -332,55 +335,26 @@ class IBL():
 		self.rng.shuffle(self.declarative_memory)
 
 	def move(self, game):
-		game_state = get_state(self.player, self.representation, game=game, return_type='index', n_actions=self.n_actions)
+		turn, coins = get_state(self.player, game, "IBL")
 		# load chunks from declarative memory into working memory
-		self.populate_working_memory(game_state, game)
+		self.populate_working_memory(turn, coins, game)
 		# select an action (generosity) that immitates the best chunk in working memory
 		self.state = self.select_action()
 		# create a new chunk for the chosen action, populate with more information in learn()
-		new_chunk = self.Chunk(game_state, None, None, None, self.episode, self.decay, self.epsilon)
+		new_chunk = self.Chunk(turn, coins, None, None, None, self.episode, self.activation_decay, self.activation_noise)
 		self.learning_memory.append(new_chunk)
 		# translate action into environment-appropriate signal
 		give, keep, action_idx = action_to_coins(self.player, self.state, self.n_actions, game)
 		return give, keep
 
-	def populate_working_memory(self, game_state, game):
+	def populate_working_memory(self, current_turn, current_coins, game):
 		self.working_memory.clear()
-		current_turn = len(game.investor_give) if self.player=='investor' else len(game.trustee_give)
-		greedy_action = 0
-		generous_action = 1.0 if self.player=='investor' else 0.5
 		for chunk in self.declarative_memory:
 			activation = chunk.get_activation(self.episode, self.rng)
-			# identify the similarity between the chunk's action and each of the candidate actions
-			similarity_greedy = 1 - np.abs(chunk.action - greedy_action)
-			similarity_generous = 1 - np.abs(chunk.action - generous_action)
-			similarity_action = np.max([similarity_greedy, similarity_generous])
-			# identify the similarity between the chunk's state and the current game state
-			if self.representation=='turn':
-				chunk_turn = chunk.state
-				similarity_state = 1 if current_turn==chunk_turn else 0
-			elif self.representation=='turn-coin':
-				if self.player=='investor':
-					chunk_turn = chunk.state
-					similarity_state = 1 if current_turn==chunk_turn else 0
-				else:
-					chunk_turn = int(chunk.state / (game.coins*game.match+1))
-					if current_turn==chunk_turn:
-						chunk_coins = chunk.state - chunk_turn*(game.coins*game.match+1)
-						current_coins = game.investor_give[-1]*game.match
-						diff_coin = np.abs(chunk_coins - current_coins)
-						similarity_state = 1.0 - diff_coin / (game.coins*game.match+1)
-					else:
-						similarity_state = 0
-			# load the chunk into working memory if various checks on activation, action similarity, and/or state similarity are passed
+			similarity_state = 1 if current_turn==chunk.turn and current_coins==chunk.coins else 0
 			pass_activation = activation > self.thr_activation
-			pass_action = similarity_action > self.thr_action
-			pass_state = similarity_state > self.thr_state
-			if self.populate_method=="action-similarity" and pass_activation and pass_action:
-				self.working_memory.append(chunk)
-			elif self.populate_method=="state-similarity" and pass_activation and pass_state:
-				self.working_memory.append(chunk)
-			elif self.populate_method=="state-action-similarity" and pass_activation and pass_action and pass_state:
+			pass_state = similarity_state > 0
+			if pass_activation and pass_state:
 				self.working_memory.append(chunk)
 
 	def select_action(self):
@@ -389,8 +363,8 @@ class IBL():
 			selected_action = self.rng.randint(0, self.n_actions) / (self.n_actions-1)
 		else:
 			# choose an action based on the activation, similarity, reward, and/or value of chunks in working memory
-			# collect chunks by actions
 			actions = {}
+			# collect chunks by actionsrValues
 			for action in np.arange(self.n_actions)/(self.n_actions-1):
 				actions[action] = {'activations':[], 'rewards':[], 'values': [], 'blended': None}
 			for chunk in self.working_memory:
@@ -407,105 +381,58 @@ class IBL():
 				else:
 					actions[action]['blended'] = 0
 			# select an action based on the exploration scheme
-			if self.explore_decay_method == 'linear':
-				explore = np.max([0, self.explore_start - self.explore_decay*self.episode])
-			elif self.explore_decay_method =='exponential':
-				explore = self.explore_start * np.exp(-self.explore_decay*self.episode)
-			elif self.explore_decay_method == 'power':
-				explore = self.explore_start * np.power(self.explore_decay, self.episode)
-			if self.explore_method=='epsilon':
-				if self.rng.uniform(0, 1) < explore:
-					if self.biased_exploration:
-						biased_actions = [0, int(self.n_actions/2), self.n_actions-1]
-						unbiased_actions = np.delete(np.arange(self.n_actions), biased_actions)
-						if self.rng.uniform(0,1)<self.bias:
-							selected_action = biased_actions[self.rng.randint(len(biased_actions))] / (self.n_actions-1)
-						else:
-							selected_action = unbiased_actions[self.rng.randint(len(unbiased_actions))] / (self.n_actions-1)
-					else:
-						selected_action = self.rng.randint(0, self.n_actions) / (self.n_actions-1)
-				else:
-					selected_action = max(actions, key=lambda action: actions[action]['blended'])
-			elif self.explore_method=='boltzmann':
-				action_gens = np.array([a for a in actions])
-				action_values = np.array([actions[a]['blended'] for a in actions])
-				action_probs = scipy.special.softmax(action_values / explore)
-				selected_action = self.rng.choice(action_gens, p=action_probs)
+			# epsilon = 1 - self.episode * self.epsilon_decay
+			epsilon = np.exp(-self.episode*self.epsilon_decay)
+			if self.rng.uniform(0, 1) < epsilon:
+				selected_action = self.rng.randint(0, self.n_actions) / (self.n_actions-1)
+			else:
+				selected_action = max(actions, key=lambda action: actions[action]['blended'])
 		return selected_action
 
 	def learn(self, game):
-		# update value of new chunks according to some scheme
+		rewards = get_rewards(self.player, self.svo, game, self.normalize, self.gamma)
 		actions = game.investor_gen if self.player=='investor' else game.trustee_gen
-		rewards = game.investor_reward if self.player=='investor' else game.trustee_reward
-		rewards_other = game.trustee_reward if self.player=='investor' else game.investor_reward
-		if self.learning_method=='MC':
-			returns = []
-			return_sum = 0
-			for t in np.arange(game.turns)[::-1]:
-				return_sum += rewards[t]
-				returns.insert(0, return_sum)
-		else:
-			returns = (1.0-self.friendliness)*np.array(rewards) + self.friendliness*np.array(rewards_other)
 		for t in np.arange(game.turns):
+			# update value of new chunks
 			chunk = self.learning_memory[t]
 			chunk.action = actions[t]
-			chunk.reward = returns[t]
+			chunk.reward = rewards[t]
 			# estimate the value of the next chunk by retrieving all similar chunks and computing their blended value
-			next_reward_blended = 0
-			next_value_blended = 0
-			if t<(game.turns-1):
+			if t==game.turns-1:
+				chunk.value = chunk.reward
+			else:
 				next_turn = t+1
-				next_chunk_rewards = []
-				next_chunk_values = []
-				next_chunk_activations = []
-				for recalled_chunk in self.declarative_memory:
-					recalled_activation = recalled_chunk.get_activation(self.episode, self.rng)
-					if self.representation=='turn':
-						chunk_turn = recalled_chunk.state
-						similarity_state = 1 if next_turn==chunk_turn else 0
-					elif self.representation=='turn-coin':
-						if self.player=='investor':
-							chunk_turn = recalled_chunk.state
-							similarity_state = 1 if next_turn==chunk_turn else 0
-						else:
-							chunk_turn = int(recalled_chunk.state / (game.coins*game.match+1))
-							if next_turn==chunk_turn:
-								chunk_coins = recalled_chunk.state - chunk_turn*(game.coins*game.match+1)
-								current_coins = game.investor_give[next_turn]*game.match
-								diff_coin = np.abs(chunk_coins - current_coins)
-								similarity_state = 1.0 - diff_coin / (game.coins*game.match+1)
-							else:
-								similarity_state = 0
-					pass_activation = recalled_activation > self.thr_activation
-					pass_state = similarity_state > self.thr_state
+				next_coins = game.coins if self.player=="investor" else game.investor_give[next_turn]*game.match
+				expected_value = 0
+				rValues = []
+				rActivations = []
+				# recall all chunks in working memory and compare to current chunk
+				for rChunk in self.declarative_memory:
+					rActivation = rChunk.get_activation(self.episode, self.rng)
+					similarity_state = 1 if next_coins==rChunk.coins else 0	
+					pass_activation = rActivation > self.thr_activation
+					pass_state = similarity_state > 0
 					if pass_activation and pass_state:
-						next_chunk_rewards.append(recalled_chunk.reward)
-						next_chunk_values.append(recalled_chunk.value)
-						next_chunk_activations.append(recalled_activation)
-				if len(next_chunk_values)>0:
-					next_reward_blended = np.average(next_chunk_rewards, weights=next_chunk_activations)
-					next_value_blended = np.average(next_chunk_values, weights=next_chunk_activations)
-			if self.value_method=='reward':
-				chunk.value = returns[t]
-			elif self.value_method=='next-reward':
-				chunk.value = chunk.reward + self.gamma*next_reward_blended
-			elif self.value_method=='next-value':
-				chunk.value = chunk.reward + self.gamma*next_value_blended
+						rValues.append(rChunk.value)
+						rActivations.append(rActivation)
+				if len(rValues)>0:
+					expected_value = np.average(rValues, weights=rActivations)
+				chunk.value = chunk.reward + self.gamma*expected_value
 
-		for new_chunk in self.learning_memory:
+		for nChunk in self.learning_memory:
 			# Check if the new chunk has identical (state, action) to a previous chunk in declarative memory.
 			# If so, update that chunk's triggers, rather than adding a new chunk to declarative memory
-			add_new_chunk = True
-			for old_chunk in self.declarative_memory:
-				if np.all(new_chunk.state == old_chunk.state) and new_chunk.action == old_chunk.action:
-					old_chunk.triggers.append(new_chunk.triggers[0])
-					old_chunk.reward = new_chunk.reward
-					old_chunk.value = new_chunk.value
-					add_new_chunk = False
+			add_nChunk = True
+			for rChunk in self.declarative_memory:
+				if nChunk.turn==rChunk.turn and nChunk.coins==rChunk.coins and nChunk.action == rChunk.action:
+					rChunk.triggers.append(nChunk.triggers[0])
+					rChunk.reward = nChunk.reward
+					rChunk.value = nChunk.value
+					add_nChunk = False
 					break
 			# Otherwise, add a new chunk to declarative memory
-			if add_new_chunk:
-				self.declarative_memory.append(new_chunk)
+			if add_nChunk:
+				self.declarative_memory.append(nChunk)
 		self.episode += 1
 
 

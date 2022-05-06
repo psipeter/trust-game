@@ -116,4 +116,18 @@ def print_ks_pairs():
 						pvalue = p_value_to_significance(data['pvalue'].to_numpy()[0])
 						print(agent+"\t"+player+" \t"+opponent+"  \tAgent "+orientation1+"\t\tHuman "+orientation2+f":  \t {statistic:.3}  {pvalue}")
 
-print_ks_pairs()
+# print_ks_pairs()
+
+# def rename_human_data():
+# 	data = pd.read_pickle("user_data/all_users.pkl")
+# 	data = data.rename(columns={"opponent_ID": "opponent"})
+# 	data = data.replace('greedyT4T', "greedy")
+# 	data = data.replace('generousT4T', "generous")
+# 	data = data.replace('social', "prosocial")
+# 	data = data.replace('self', "proself")
+# 	data.to_pickle("human_data/human_data.pkl")
+
+# rename_human_data()
+
+# data = pd.read_pickle("human_data/human_data.pkl")
+# plot_final_generosities_svo(data, "Human")

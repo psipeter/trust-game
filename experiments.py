@@ -110,7 +110,7 @@ def baseline(agent, N=10, games=100, seed=0, load=False):
 		dfs.append(train(attrition_investor, learners, 'trustee', games))
 		data = pd.concat(dfs, ignore_index=True)
 		data.to_pickle(f'agent_data/{agent}_N={N}_games={games}_benchmark.pkl')
-	plot_trajectories_generosities_baseline(data, agent)
+	# plot_trajectories_generosities_baseline(data, agent)
 	plot_final_generosities_baseline(data, agent)
 
 def svo(agent, N=10, games=100, seed=0, load=False):

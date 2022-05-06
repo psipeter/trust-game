@@ -5,7 +5,7 @@ import torch
 import nengo
 from scipy.stats import entropy, skew, kurtosis, normaltest
 
-def get_state(player, game, agent, dim=0, turn_basis=None, coin_basis=None):
+def get_state(player, game, agent, dim=0, turn_basis=None, coin_basis=None, representation="one-hot"):
 	t = len(game.investor_give) if player=='investor' else len(game.trustee_give)
 	# if representation == "ssp":
 	# 	c = game.coins if player=='investor' else game.investor_give[-1]*game.match
@@ -17,10 +17,20 @@ def get_state(player, game, agent, dim=0, turn_basis=None, coin_basis=None):
 		index = t if player=='investor' else t * (game.coins*game.match+1) + game.investor_give[-1]*game.match
 		return index
 	if agent=='DQN':
-		index = t if player=='investor' else t * (game.coins*game.match+1) + game.investor_give[-1]*game.match
-		vector = np.zeros((dim))
-		vector[index] = 1
-		return torch.FloatTensor(vector)
+		if representation=="one-hot":
+			index = t if player=='investor' else t * (game.coins*game.match+1) + game.investor_give[-1]*game.match
+			vector = np.zeros((dim))
+			vector[index] = 1
+			return torch.FloatTensor(vector)
+		elif representation=="ssp":
+			c = game.coins if player=='investor' else game.investor_give[-1]*game.match
+			vector = encode_state(t, c, turn_basis, coin_basis)
+			return torch.FloatTensor(vector)
+	if agent=="IBL":
+		if player=="investor":
+			return t, game.coins
+		else:
+			return t, game.investor_give[-1]*game.match
 	# if agent=='one-hot':
 	# 	vector = np.zeros((dim))
 	# 	vector[index] = 1
@@ -67,10 +77,11 @@ def measure_similarity(ssp1, ssp2, mode="cosine"):
     elif mode=="cosine":
         return np.sum(ssp1 * ssp2) / (np.linalg.norm(ssp1, ord=2) * np.linalg.norm(ssp2, ord=2))
 
-def get_rewards(player, svo, game, normalize):
+def get_rewards(player, svo, game, normalize, gamma):
 	rewards_self = game.investor_reward if player=='investor' else game.trustee_reward
 	rewards_other = game.trustee_reward if player=='investor' else game.investor_reward
 	rewards = ((1-svo)*np.array(rewards_self) + svo*np.array(rewards_other))
 	if normalize:
 		rewards = rewards / (game.coins * game.match)
+		rewards[:-1] = (1-gamma)*rewards[:-1]
 	return rewards

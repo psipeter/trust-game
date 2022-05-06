@@ -36,18 +36,18 @@ from experiments import *
 
 load = False
 
-# baseline(agent="TQ", N=5, games=200, seed=0, load=load)
-baseline(agent="DQN", N=5, games=400, seed=0, load=load)
-# baseline(learner_type="deep-q-learning", n_learners=1, n_train=200, seed=0)
-# baseline(learner_type="instance-based", n_learners=5, n_train=200, seed=0)
+# baseline(agent="TQ", N=5, games=150, seed=0, load=load)
+# baseline(agent="DQN", N=10, games=500, seed=0, load=load)
+# baseline(agent="IBL", N=10, games=200, seed=0, load=load)
 # baseline(learner_type="nengo-q-learning", n_learners=1, n_train=150, seed=0)
 # baseline(learner_type="NQ2", n_learners=1, n_train=200, seed=0)
 # baseline(learner_type="NQ", n_learners=3, n_train=100, seed=1)
 
-# svo(agent="TQ", N=100, games=200, seed=0, load=load)
-# svo(agent="DQN", N=10, games=500, seed=0, load=load)
-# svo(learner_type="deep-q-learning", n_learners=100, n_train=150, seed=0, load=load)
-# svo(learner_type="instance-based", n_learners=100, n_train=150, seed=0, load=load)
+svo(agent="TQ", N=300, games=200, seed=0)
+svo(agent="DQN", N=300, games=500, seed=0, load=load)
+svo(agent="IBL", N=300, games=200, seed=0, load=load)
 # svo(learner_type="nengo-q-learning", n_learners=100, n_train=150, seed=0)
 
-# plot_full_comparison()
+agents = ['Human', 'Random', 'TQ', 'IBL', "DQN"]
+compare_final_generosities(agents=agents)
+compare_convergence(agents=agents)
