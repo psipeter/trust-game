@@ -78,20 +78,20 @@ def compare_final_generosities(agents=['Human'], games=3):
 			lw = 0.1
 			color = 'k'
 		if agent=="DQN":
-			data = pd.read_pickle(f'agent_data/DQN_N=300_games=500_svo.pkl')
+			data = pd.read_pickle(f'agent_data/DQN_N=100_games=200_svo.pkl')
 			fill = False
 			lw = 2
 			color = palette[0]
 		if agent=="IBL":
-			data = pd.read_pickle(f'agent_data/IBL_N=300_games=200_svo.pkl')
+			data = pd.read_pickle(f'agent_data/IBL_N=100_games=200_svo.pkl')
 			fill = False
 			lw = 2
 			color = palette[1]
 		if agent=="TQ":
-			data = pd.read_pickle(f'agent_data/TQ_N=300_games=200_svo.pkl')
+			data = pd.read_pickle(f'agent_data/TQ_N=100_games=200_svo.pkl')
 			fill = False
 			lw = 2
-			color = palette[1]
+			color = palette[2]
 		last_game = data['game'].unique().max()
 		final_games = np.arange(last_game-(games-1), last_game+1)
 		for i, orientation in enumerate(["proself", "prosocial"]):
@@ -111,16 +111,16 @@ def compare_final_generosities(agents=['Human'], games=3):
 	plt.tight_layout()
 	fig.savefig(f"plots/compare_final_generosities.pdf", bbox_inches="tight", pad_inches=0)
 
-def compare_convergence(agents=['Human'], load=False, last_n_games=3, metric='KS'):
+def compare_convergence(agents=['Human'], load=False, save=False, last_n_games=3, metric='KS'):
 	if not load:
 		dfs = []
 		columns = ('agent', 'ID', 'player', 'opponent', 'orientation', 'game', 'sim_final')
 		for agent in agents:
 			if agent=="Human": data = pd.read_pickle("human_data/human_data.pkl")
+			if agent=="TQ": data = pd.read_pickle("agent_data/TQ_N=100_games=200_svo.pkl")
+			if agent=="DQN": data = pd.read_pickle(f'agent_data/DQN_N=20_games=1000_svo.pkl')
+			if agent=="IBL": data = pd.read_pickle(f'agent_data/IBL_N=200_games=200_svo.pkl')
 			if agent=="Random": data = pd.read_pickle("agent_data/DQN_N=100_games=100_svo_random.pkl")
-			if agent=="TQ": data = pd.read_pickle("agent_data/TQ_N=300_games=200_svo.pkl")
-			if agent=="DQN": data = pd.read_pickle(f'agent_data/DQN_N=300_games=500_svo.pkl')
-			if agent=="IBL": data = pd.read_pickle(f'agent_data/IBL_N=300_games=200_svo.pkl')
 			last_game = data['game'].unique().max()
 			final_games = np.arange(last_game-(last_n_games-1), last_game+1)
 			for player in ["investor", "trustee"]:
@@ -146,7 +146,8 @@ def compare_convergence(agents=['Human'], load=False, last_n_games=3, metric='KS
 								rescaled_game = game / (last_game+1)
 								dfs.append(pd.DataFrame([[agent, ID, player, opponent, orientation, rescaled_game, sim_final]], columns=columns))
 		data = pd.concat(dfs, ignore_index=True)
-		data.to_pickle(f"analysis_data/convergence.pkl")
+		if save:
+			data.to_pickle(f"analysis_data/convergence.pkl")
 		print(data)
 	else:
 		data = pd.read_pickle(f"analysis_data/convergence.pkl")
