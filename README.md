@@ -1,7 +1,7 @@
 # trust-game
 Behavioral and neural models of social decision making in the Trust Game
 
-pip install numpy scipy matplotlib seaborn pandas nengo torch
+pip install numpy scipy matplotlib seaborn pandas nengo nengo-spa torch
  - note: torch requires python < 3.8
 
 - main.py describes which experiment to run, with which agents. Execute this file to run the program (python main.py)

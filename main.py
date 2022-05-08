@@ -38,13 +38,13 @@ load = False
 
 # baseline(agent="TQ", N=3, games=200, seed=0, load=load)
 # baseline(agent="DQN", N=3, games=1000, seed=0, load=load)
-# baseline(agent="IBL", N=10, games=200, seed=0, load=load)
-baseline(agent="SPA", N=1, games=100, seed=0, load=load)
+# baseline(agent="IBL", N=5, games=150, seed=0, load=load)
+baseline(agent="SPA", N=1, games=150, seed=0, load=load)
 
 # svo(agent="TQ", N=100, games=200, seed=0)
 # svo(agent="DQN", N=20, games=1000, seed=0, load=load)
-# svo(agent="IBL", N=200, games=200, seed=0, load=load)
-# svo(learner_type="SPA", n_learners=100, n_train=150, seed=0)
+# svo(agent="IBL", N=300, games=150, seed=0, load=load)
+# svo(agent="SPA", N=1, games=150, seed=0, load=load)
 
 # agents = ['Human','DQN']
 # compare_final_generosities(agents=agents)

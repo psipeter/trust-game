@@ -308,17 +308,18 @@ class IBL():
 			self.activation_noise = self.rng.uniform(0.2, 0.4)
 			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
 			self.svo = 0 if self.orientation=="proself" else self.rng.uniform(self.svo_min, self.svo_max)
+			self.epsilon_decay = self.rng.uniform(0.015, 0.025)
 		else:
 			self.gamma = gamma
 			self.activation_decay = activation_decay
 			self.activation_noise = activation_noise
 			self.orientation = orientation
+			self.epsilon_decay = epsilon_decay
 			self.svo = 0 if self.orientation=="proself" else self.svo_max
 		self.thr_activation = thr_activation  # activation threshold for retrieval (loading chunks from declarative into working memory)
 		self.declarative_memory = []
 		self.working_memory = []
 		self.learning_memory = []
-		self.epsilon_decay = epsilon_decay
 		self.state = None
 		self.episode = 0
 
@@ -519,7 +520,7 @@ class SPA():
 			learning_rate=1e-8, n_neurons=5000, n_array=500, n_states=100, sparsity=0.1,
 			gate_mode="array", memory_mode="array", randomize=False, normalize=True,
 			dt=1e-3, t1=1e-1, t2=1e-1, t3=1e-1, tR=1e-2, orientation="proself",
-			epsilon_decay=0.01, gamma=0.6, svo_min=0, svo_max=0.5):
+			epsilon_decay=0.02, gamma=0.6, svo_min=0, svo_max=0.5):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -850,8 +851,8 @@ class SPA():
 		game_state = get_state(self.player, game, "SPA", dim=self.n_states, turn_basis=self.turn_basis, coin_basis=self.coin_basis, representation="ssp")
 		self.env.set_reward(game)
 		self.env.set_state(game_state)
-		epsilon = 1 - self.episode * self.epsilon_decay
-		# epsilon = np.exp(-self.episode*self.epsilon_decay)
+		# epsilon = 1 - self.episode * self.epsilon_decay
+		epsilon = np.exp(-self.episode*self.epsilon_decay)
 		self.env.set_random_choice(epsilon)
 
 		self.simulator.run(self.t1, progress_bar=False)  # store Q(s',a*)
