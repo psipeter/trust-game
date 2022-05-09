@@ -15,8 +15,8 @@ class TQ():
 	# Tabular Q-learning agent
 	def __init__(self, player, ID="TQ", seed=0, n_actions=11, n_states=155,
 			learning_rate=1, gamma=0.8, epsilon_decay=0.02,
-			svo_min=0, svo_max=0.5, orientation="proself",
-			normalize=True, randomize=False):
+			orientation="proself",
+			normalize=False, randomize=False):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -25,19 +25,21 @@ class TQ():
 		self.rng = np.random.RandomState(seed=seed)
 		self.n_states = n_states
 		self.n_actions = n_actions
-		self.svo_min = svo_min
-		self.svo_max = svo_max
+		self.w_s = 1
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.7, 1.0)
-			self.learning_rate = self.rng.uniform(0.9, 1.1)
+			self.gamma = self.rng.uniform(0.6, 1.0)
+			self.learning_rate = self.rng.uniform(0.9, 1.0)
 			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
-			self.svo = 0 if self.orientation=="proself" else self.rng.uniform(self.svo_min, self.svo_max)
+			self.w_o = 0 if self.orientation=="proself" else self.rng.uniform(0, 0.3)
+			self.w_i = 0 if self.orientation=="proself" else self.rng.uniform(0, 0.5)
+			self.epsilon_decay = self.rng.uniform(0.015, 0.025)
 		else:
 			self.gamma = gamma
 			self.learning_rate = learning_rate
 			self.orientation = orientation
-			self.svo = 0 if self.orientation=="proself" else self.svo_max
-		self.epsilon_decay = epsilon_decay
+			self.w_o = 0 if self.orientation=="proself" else 0.2
+			self.w_i = 0 if self.orientation=="proself" else 0.2
+			self.epsilon_decay = epsilon_decay
 		self.Q = np.zeros((self.n_states, self.n_actions))
 		self.state_history = []
 		self.action_history = []
@@ -77,7 +79,7 @@ class TQ():
 
 	def learn(self, game):
 		self.episode += 1
-		rewards = get_rewards(self.player, self.svo, game, self.normalize, self.gamma)
+		rewards = get_rewards(self.player, game, self.w_s, self.w_o, self.w_i, self.normalize, self.gamma)
 		for t in np.arange(game.turns):
 			state = self.state_history[t]
 			action = self.action_history[t]
@@ -128,8 +130,8 @@ class DQN():
 			return len(self.memory)
 
 	def __init__(self, player, seed=0, n_states=156, n_actions=11, n_neurons=30, ID="DQN",
-			learning_rate=3e-2, gamma=0.9, epsilon_decay=0.004, batch_size=20, target_update=50,
-			svo_min=0, svo_max=0.5, orientation="proself", representation="one-hot", batch_learn=False,
+			learning_rate=3e-2, gamma=0.9, epsilon_decay=0.0025, batch_size=20, target_update=50,
+			orientation="proself", representation="one-hot", batch_learn=False,
 			normalize=False, randomize=False):
 		self.player = player
 		self.ID = ID
@@ -142,24 +144,26 @@ class DQN():
 		self.n_neurons = n_neurons
 		self.batch_size = batch_size
 		self.target_update = target_update
-		self.svo_min = svo_min
-		self.svo_max = svo_max
 		self.representation = representation
 		self.batch_learn = batch_learn
 		self.turn_basis = make_unitary(np.fft.fft(nengo.dists.UniformHypersphere().sample(1, n_states, rng=self.rng)))
 		self.coin_basis = make_unitary(np.fft.fft(nengo.dists.UniformHypersphere().sample(1, n_states, rng=self.rng)))
+		self.w_s = 1
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.85, 0.95)
-			self.learning_rate = self.rng.uniform(2e-2, 4e-2)
+			self.gamma = self.rng.uniform(0.9, 1)
+			self.learning_rate = self.rng.uniform(1e-2, 3e-2)
 			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
-			self.svo = 0 if self.orientation=="proself" else self.rng.uniform(self.svo_min, self.svo_max)
+			self.w_o = 0 if self.orientation=="proself" else self.rng.uniform(0.1, 0.2)
+			self.w_i = 0.0 if self.orientation=="proself" else self.rng.uniform(0.2, 0.3)
+			self.epsilon_decay = epsilon_decay
 		else:
 			self.gamma = gamma
 			self.learning_rate = learning_rate
 			self.orientation = orientation
-			self.svo = 0 if self.orientation=="proself" else self.svo_max
+			self.w_o = 0 if self.orientation=="proself" else 0.3
+			self.w_i = 0 if self.orientation=="proself" else 0.5
+			self.epsilon_decay = epsilon_decay
 		torch.manual_seed(seed)
-		self.epsilon_decay = epsilon_decay
 		self.critic = self.Critic(self.n_neurons, self.n_states, self.n_actions)
 		self.target = self.Critic(self.n_neurons, self.n_states, self.n_actions) if self.batch_learn else None
 		self.optimizer = torch.optim.Adam(self.critic.parameters(), self.learning_rate)
@@ -198,8 +202,8 @@ class DQN():
 		else:
 			values = self.critic(game_state)			
 		# Choose and action based on thees values and some exploration strategy
-		# epsilon = 1 - self.episode * self.epsilon_decay
-		epsilon = np.exp(-self.episode*self.epsilon_decay)
+		epsilon = 1 - self.episode * self.epsilon_decay
+		# epsilon = np.exp(-self.episode*self.epsilon_decay)
 		if self.rng.uniform(0, 1) < epsilon:
 			action = torch.LongTensor([self.rng.randint(self.n_actions)])
 		else:
@@ -218,7 +222,7 @@ class DQN():
 
 	def learn(self, game):
 		self.episode += 1
-		rewards = get_rewards(self.player, self.svo, game, self.normalize, self.gamma)
+		rewards = get_rewards(self.player, game, self.w_s, self.w_o, self.w_i, self.normalize, self.gamma)
 		if self.batch_learn:
 			for t in range(game.turns):
 				state = self.state_history[t]
@@ -288,11 +292,10 @@ class IBL():
 			return np.log(activation) + rng.logistic(loc=0.0, scale=self.epsilon)
 
 	def __init__(self, player, ID="IBL", seed=0, n_actions=11,
-			gamma=0.8, epsilon_decay=0.02,
-			svo_min=0, svo_max=0.5, orientation="proself",
+			gamma=0.8, epsilon_decay=0.005,
+			orientation="proself",
 			activation_decay=0.5, activation_noise=0.3, thr_activation=0,
 			normalize=False, randomize=False):
-
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -300,22 +303,23 @@ class IBL():
 		self.normalize = normalize
 		self.rng = np.random.RandomState(seed=seed)
 		self.n_actions = n_actions
-		self.svo_min = svo_min
-		self.svo_max = svo_max
+		self.w_s = 1
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.7, 1)
-			self.activation_decay = self.rng.uniform(0.4, 0.6)
-			self.activation_noise = self.rng.uniform(0.2, 0.4)
+			self.gamma = self.rng.uniform(0.8, 1.0)
+			self.activation_decay = self.rng.uniform(0.4, 0.5)
+			self.activation_noise = self.rng.uniform(0.2, 0.3)
 			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
-			self.svo = 0 if self.orientation=="proself" else self.rng.uniform(self.svo_min, self.svo_max)
-			self.epsilon_decay = self.rng.uniform(0.015, 0.025)
+			self.w_o = 0 if self.orientation=="proself" else self.rng.uniform(0.2, 0.3)
+			self.w_i = 0 if self.orientation=="proself" else self.rng.uniform(0.2, 0.3)
+			self.epsilon_decay = epsilon_decay
 		else:
 			self.gamma = gamma
 			self.activation_decay = activation_decay
 			self.activation_noise = activation_noise
 			self.orientation = orientation
 			self.epsilon_decay = epsilon_decay
-			self.svo = 0 if self.orientation=="proself" else self.svo_max
+			self.w_o = 0 if self.orientation=="proself" else 0.3
+			self.w_i = 0 if self.orientation=="proself" else 0.5
 		self.thr_activation = thr_activation  # activation threshold for retrieval (loading chunks from declarative into working memory)
 		self.declarative_memory = []
 		self.working_memory = []
@@ -383,8 +387,8 @@ class IBL():
 				else:
 					actions[action]['blended'] = 0
 			# select an action based on the exploration scheme
-			# epsilon = 1 - self.episode * self.epsilon_decay
-			epsilon = np.exp(-self.episode*self.epsilon_decay)
+			epsilon = 1 - self.episode * self.epsilon_decay
+			# epsilon = np.exp(-self.episode*self.epsilon_decay)
 			if self.rng.uniform(0, 1) < epsilon:
 				selected_action = self.rng.randint(0, self.n_actions) / (self.n_actions-1)
 			else:
@@ -392,7 +396,7 @@ class IBL():
 		return selected_action
 
 	def learn(self, game):
-		rewards = get_rewards(self.player, self.svo, game, self.normalize, self.gamma)
+		rewards = get_rewards(self.player, game, self.w_s, self.w_o, self.w_i, self.normalize, self.gamma)
 		actions = game.investor_gen if self.player=='investor' else game.trustee_gen
 		for t in np.arange(game.turns):
 			# update value of new chunks
@@ -444,7 +448,7 @@ class IBL():
 class SPA():
 
 	class Environment():
-		def __init__(self, player, n_states, n_actions, t1, t2, t3, tR, rng, gamma, svo, normalize=True, dt=1e-3):
+		def __init__(self, player, n_states, n_actions, t1, t2, t3, tR, rng, gamma, w_s, w_o, w_i, normalize=True, dt=1e-3):
 			self.player = player
 			self.state = np.zeros((n_states))
 			self.n_actions = n_actions
@@ -457,16 +461,18 @@ class SPA():
 			self.dt = dt
 			self.random_choice = np.zeros((self.n_actions))
 			self.gamma = gamma
-			self.svo = svo
+			self.w_s = w_s
+			self.w_o = w_o
+			self.w_i = w_i
 			self.normalize = normalize
 		def set_state(self, state):
 			self.state = state
 		def set_reward(self, game):
-			rewards_self = game.investor_reward if self.player=='investor' else game.trustee_reward
-			rewards_other = game.trustee_reward if self.player=='investor' else game.investor_reward
-			rewards = (1-self.svo)*rewards_self + self.svo*rewards_other
+			rewards_self = np.array(game.investor_reward) if self.player=='investor' else np.array(game.trustee_reward)
+			rewards_other = np.array(game.trustee_reward) if self.player=='investor' else np.array(game.investor_reward)
+			rewards = self.w_s*rewards_self + self.w_o*rewards_other - self.w_i*np.abs(rewards_self-rewards_other)
 			if self.normalize:
-				rewards = np.array(rewards) / (game.coins * game.match)
+				rewards = rewards / (game.coins * game.match)
 				if len(rewards)==0:
 					self.reward = 0
 				elif len(rewards)<5:
@@ -520,7 +526,7 @@ class SPA():
 			learning_rate=1e-8, n_neurons=5000, n_array=500, n_states=100, sparsity=0.1,
 			gate_mode="array", memory_mode="array", randomize=False, normalize=True,
 			dt=1e-3, t1=1e-1, t2=1e-1, t3=1e-1, tR=1e-2, orientation="proself",
-			epsilon_decay=0.02, gamma=0.6, svo_min=0, svo_max=0.5):
+			epsilon_decay=0.005, gamma=0.6):
 		self.player = player
 		self.ID = ID
 		self.seed = seed
@@ -532,18 +538,21 @@ class SPA():
 		self.dt = dt
 		self.normalize = normalize
 		self.randomize = randomize
-		self.svo_min = svo_min
-		self.svo_max = svo_max
+		self.w_s = 1
 		if self.randomize:
 			self.gamma = self.rng.uniform(0.6, 0.7)
 			self.learning_rate = self.rng.uniform(1e-8, 2e-8)
-			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
-			self.svo = 0 if self.orientation=="proself" else self.rng.uniform(self.svo_min, self.svo_max)
+			self.orientation = "proself"# if self.rng.uniform(0,1) < 0.5 else "prosocial"
+			self.w_o = 0 if self.orientation=="proself" else self.rng.uniform(0.2, 0.3)
+			self.w_i = 0 if self.orientation=="proself" else self.rng.uniform(0.2, 0.3)
+			self.epsilon_decay = epsilon_decay
 		else:
 			self.gamma = gamma
 			self.learning_rate = learning_rate
 			self.orientation = orientation
-			self.svo = 0 if self.orientation=="proself" else self.svo_max
+			self.w_o = 0 if self.orientation=="proself" else 0.3
+			self.w_i = 0 if self.orientation=="proself" else 0.3
+			self.epsilon_decay = epsilon_decay
 		self.t1 = t1
 		self.t2 = t2
 		self.t3 = t3
@@ -551,7 +560,8 @@ class SPA():
 		self.memory_mode = memory_mode
 		self.gate_mode = gate_mode
 		self.epsilon_decay = epsilon_decay
-		self.env = self.Environment(self.player, self.n_states, self.n_actions, t1, t2, t3, tR, self.rng, self.gamma, self.svo, self.normalize)
+		self.env = self.Environment(self.player, self.n_states, self.n_actions, t1, t2, t3, tR,
+			self.rng, self.gamma, self.w_s, self.w_o, self.w_i, self.normalize)
 		self.decoders = np.zeros((self.n_neurons, self.n_actions))
 		self.network = None
 		self.simulator = None
@@ -577,7 +587,8 @@ class SPA():
 		self.simulator = nengo.Simulator(self.network, dt=self.dt, seed=self.seed, progress_bar=True)
 
 	def new_game(self, game):
-		self.env.__init__(self.player, self.n_states, self.n_actions, self.t1, self.t2, self.t3, self.tR, self.rng, self.gamma, self.svo, self.normalize)
+		self.env.__init__(self.player, self.n_states, self.n_actions, self.t1, self.t2, self.t3, self.tR, self.rng, self.gamma,
+			self.w_s, self.w_o, self.w_i, self.normalize)
 		self.episode += 1
 		self.simulator.reset(self.seed)
 
@@ -851,8 +862,8 @@ class SPA():
 		game_state = get_state(self.player, game, "SPA", dim=self.n_states, turn_basis=self.turn_basis, coin_basis=self.coin_basis, representation="ssp")
 		self.env.set_reward(game)
 		self.env.set_state(game_state)
-		# epsilon = 1 - self.episode * self.epsilon_decay
-		epsilon = np.exp(-self.episode*self.epsilon_decay)
+		epsilon = 1 - self.episode * self.epsilon_decay
+		# epsilon = np.exp(-self.episode*self.epsilon_decay)
 		self.env.set_random_choice(epsilon)
 
 		self.simulator.run(self.t1, progress_bar=False)  # store Q(s',a*)

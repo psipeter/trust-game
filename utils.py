@@ -70,10 +70,10 @@ def measure_similarity(ssp1, ssp2, mode="cosine"):
     elif mode=="cosine":
         return np.sum(ssp1 * ssp2) / (np.linalg.norm(ssp1, ord=2) * np.linalg.norm(ssp2, ord=2))
 
-def get_rewards(player, svo, game, normalize, gamma):
-	rewards_self = game.investor_reward if player=='investor' else game.trustee_reward
-	rewards_other = game.trustee_reward if player=='investor' else game.investor_reward
-	rewards = np.array(rewards_self) + svo*np.array(rewards_other)
+def get_rewards(player, game, w_s, w_o, w_i, normalize, gamma):
+	rewards_self = np.array(game.investor_reward) if player=='investor' else np.array(game.trustee_reward)
+	rewards_other = np.array(game.trustee_reward) if player=='investor' else np.array(game.investor_reward)
+	rewards = w_s*rewards_self + w_o*rewards_other - w_i*np.abs(rewards_self-rewards_other)
 	if normalize:
 		rewards = rewards / (game.coins * game.match)
 		rewards[:-1] = (1-gamma)*rewards[:-1]

@@ -2,6 +2,7 @@
 from learning_agents import *
 from utils import *
 from experiments import *
+from analysis import *
 
 # plot_user_data()
 # plot_agent_data("agent_data/DeepQLearning_N=3_friendliness.pkl", learner_type='deep-q-learning', seed=0, n_learners=3)
@@ -37,16 +38,17 @@ from experiments import *
 load = False
 
 # baseline(agent="TQ", N=3, games=200, seed=0, load=load)
-# baseline(agent="DQN", N=3, games=1000, seed=0, load=load)
+# baseline(agent="DQN", N=300, games=1000, seed=0, load=load)
 # baseline(agent="IBL", N=5, games=150, seed=0, load=load)
-baseline(agent="SPA", N=1, games=150, seed=0, load=load)
+# baseline(agent="SPA", N=1, games=200, seed=0, load=load)
 
 # svo(agent="TQ", N=100, games=200, seed=0)
-# svo(agent="DQN", N=20, games=1000, seed=0, load=load)
-# svo(agent="IBL", N=300, games=150, seed=0, load=load)
-# svo(agent="SPA", N=1, games=150, seed=0, load=load)
+# svo(agent="DQN", N=300, games=400, seed=0, load=load)
+# svo(agent="IBL", N=300, games=200, seed=0, load=load)
+svo(agent="SPA", N=1, games=200, seed=0, load=load)
 
-# agents = ['Human','DQN']
+# agents = ['DQN', "IBL"]
+# similarity_metric(agents, test="5x5")
 # compare_final_generosities(agents=agents)
+# compare_defectors(agents=agents)
 # compare_convergence(agents=agents)
-# compare_convergence_svo()

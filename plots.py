@@ -78,12 +78,12 @@ def compare_final_generosities(agents=['Human'], games=3):
 			lw = 0.1
 			color = 'k'
 		if agent=="DQN":
-			data = pd.read_pickle(f'agent_data/DQN_N=100_games=200_svo.pkl')
+			data = pd.read_pickle(f'agent_data/DQN_N=300_games=400_svo.pkl')
 			fill = False
 			lw = 2
 			color = palette[0]
 		if agent=="IBL":
-			data = pd.read_pickle(f'agent_data/IBL_N=100_games=200_svo.pkl')
+			data = pd.read_pickle(f'agent_data/IBL_N=300_games=200_svo.pkl')
 			fill = False
 			lw = 2
 			color = palette[1]
@@ -111,15 +111,15 @@ def compare_final_generosities(agents=['Human'], games=3):
 	plt.tight_layout()
 	fig.savefig(f"plots/compare_final_generosities.pdf", bbox_inches="tight", pad_inches=0)
 
-def compare_convergence(agents=['Human'], load=False, save=False, last_n_games=3, metric='KS'):
+def compare_convergence(agents=['Human'], load=False, save=True, last_n_games=3, metric='KS'):
 	if not load:
 		dfs = []
 		columns = ('agent', 'ID', 'player', 'opponent', 'orientation', 'game', 'sim_final')
 		for agent in agents:
 			if agent=="Human": data = pd.read_pickle("human_data/human_data.pkl")
-			if agent=="TQ": data = pd.read_pickle("agent_data/TQ_N=100_games=200_svo.pkl")
-			if agent=="DQN": data = pd.read_pickle(f'agent_data/DQN_N=20_games=1000_svo.pkl')
-			if agent=="IBL": data = pd.read_pickle(f'agent_data/IBL_N=200_games=200_svo.pkl')
+			if agent=="TQ": data = pd.read_pickle("agent_data/TQ_N=200_games=200_svo.pkl")
+			if agent=="DQN": data = pd.read_pickle(f'agent_data/DQN_N=300_games=400_svo.pkl')
+			if agent=="IBL": data = pd.read_pickle(f'agent_data/IBL_N=300_games=200_svo.pkl')
 			if agent=="Random": data = pd.read_pickle("agent_data/DQN_N=100_games=100_svo_random.pkl")
 			last_game = data['game'].unique().max()
 			final_games = np.arange(last_game-(last_n_games-1), last_game+1)
@@ -180,3 +180,51 @@ def compare_convergence(agents=['Human'], load=False, save=False, last_n_games=3
 	axes[1][0].set(ylabel="prosocial\nsimilarity to final gen.")
 	plt.tight_layout()
 	fig.savefig(f"plots/compare_convergence.pdf", bbox_inches="tight", pad_inches=0)
+
+
+def compare_defectors(agents=['Human'], load=True, save=True, last_n_games=3, thr_defect=0.2):
+	if not load:
+		dfs = []
+		columns = ('agent', 'condition', 'defectors')
+		for agent in agents:
+			if agent=="Human": data = pd.read_pickle("human_data/human_data.pkl")
+			if agent=="TQ": data = pd.read_pickle("agent_data/TQ_N=100_games=200_svo.pkl")
+			if agent=="DQN": data = pd.read_pickle(f'agent_data/DQN_N=300_games=400_svo.pkl')
+			if agent=="IBL": data = pd.read_pickle(f'agent_data/IBL_N=300_games=200_svo.pkl')
+			last_game = data['game'].unique().max()
+			final_games = np.arange(last_game-(last_n_games-1), last_game+1)
+			for opponent in ["greedy", "generous"]:
+				for orientation in ["proself", "prosocial"]:
+					query_string = "player=='trustee' & opponent==@opponent & orientation==@orientation"
+					group_data = data.query(query_string)
+					individuals = group_data['ID'].unique()
+					defectors = 0
+					cooperators = 0
+					for ID in individuals:
+						individual_data = group_data.query("ID == @ID")
+						final_turn_final_games_string = "game in @final_games & turn==4"
+						final_gens = individual_data.query(final_turn_final_games_string).dropna()['generosity'].to_numpy()
+						if len(final_gens) > 0:  # return 0 on turn 4 will result in 0 coins available on turn 5 and 'nan' entries
+							if np.mean(final_gens) <= thr_defect:
+								defectors += 1
+							else:
+								cooperators += 1
+					condition = f"{orientation}\n{opponent}"
+					percent_defectors = 100 * defectors / (defectors+cooperators)
+					dfs.append(pd.DataFrame([[agent, condition, percent_defectors]], columns=columns))
+		data = pd.concat(dfs, ignore_index=True)
+		if save:
+			data.to_pickle(f"analysis_data/defect.pkl")
+	else:
+		data = pd.read_pickle(f"analysis_data/defect.pkl")
+
+	fmt = '%.0f%%'
+	yticks = mtick.FormatStrFormatter(fmt)
+	new_palette = ['k', palette[0], palette[1]]
+	fig, axes = plt.subplots(nrows=1, ncols=1, figsize=((3.35,2)))
+	sns.barplot(data=data, x='condition', y='defectors', hue="agent", palette=new_palette)
+	axes.legend(ncol=len(agents))
+	axes.set(ylabel="defectors", xlabel=None, yticks=((0, 100)))
+	axes.yaxis.set_major_formatter(yticks)
+	plt.tight_layout()
+	fig.savefig(f"plots/compare_defectors.pdf", bbox_inches="tight", pad_inches=0.01)

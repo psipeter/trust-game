@@ -67,7 +67,7 @@ def train(investors, trustees, player, games):
 		print(f"{agent.ID} vs {opponents[0].ID}")
 		agent.reinitialize(player=player)
 		for g in range(games):
-			print(f"game {g}")
+			# print(f"game {g}")
 			if player=='investor':
 				dfs = game_loop(agent, trustees[g], agent, g=g, dfs=dfs)
 			elif player=='trustee':
@@ -100,14 +100,14 @@ def baseline(agent, N=10, games=100, seed=0, load=False):
 		gift_investor = [benchmark('investor', 'gift') for _ in range(games)]
 		attrition_trustee = [benchmark('trustee', 'attrition') for _ in range(games)]
 		attrition_investor = [benchmark('investor', 'attrition') for _ in range(games)]
-		dfs.append(train(learners, cooperate_trustee, 'investor', games))
+		# dfs.append(train(learners, cooperate_trustee, 'investor', games))
 		dfs.append(train(cooperate_investor, learners, 'trustee', games))
-		dfs.append(train(learners, defect_trustee, 'investor', games))
-		dfs.append(train(defect_investor, learners, 'trustee', games))
-		dfs.append(train(learners, gift_trustee, 'investor', games))
-		dfs.append(train(gift_investor, learners, 'trustee', games))
-		dfs.append(train(learners, attrition_trustee, 'investor', games))
-		dfs.append(train(attrition_investor, learners, 'trustee', games))
+		# dfs.append(train(learners, defect_trustee, 'investor', games))
+		# dfs.append(train(defect_investor, learners, 'trustee', games))
+		# dfs.append(train(learners, gift_trustee, 'investor', games))
+		# dfs.append(train(gift_investor, learners, 'trustee', games))
+		# dfs.append(train(learners, attrition_trustee, 'investor', games))
+		# dfs.append(train(attrition_investor, learners, 'trustee', games))
 		data = pd.concat(dfs, ignore_index=True)
 		data.to_pickle(f'agent_data/{agent}_N={N}_games={games}_benchmark.pkl')
 	# plot_trajectories_generosities_baseline(data, agent)
