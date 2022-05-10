@@ -150,11 +150,11 @@ class DQN():
 		self.coin_basis = make_unitary(np.fft.fft(nengo.dists.UniformHypersphere().sample(1, n_states, rng=self.rng)))
 		self.w_s = 1
 		if self.randomize:
-			self.gamma = self.rng.uniform(0.9, 1)
+			self.gamma = self.rng.uniform(0.8, 1)
 			self.learning_rate = self.rng.uniform(1e-2, 3e-2)
 			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
-			self.w_o = 0 if self.orientation=="proself" else self.rng.uniform(0.1, 0.2)
-			self.w_i = 0.0 if self.orientation=="proself" else self.rng.uniform(0.2, 0.3)
+			self.w_o = 0 if self.orientation=="proself" else self.rng.uniform(0, 0.5)
+			self.w_i = 0 if self.orientation=="proself" else self.rng.uniform(0, 0.5)
 			self.epsilon_decay = epsilon_decay
 		else:
 			self.gamma = gamma
@@ -309,8 +309,8 @@ class IBL():
 			self.activation_decay = self.rng.uniform(0.4, 0.5)
 			self.activation_noise = self.rng.uniform(0.2, 0.3)
 			self.orientation = "proself" if self.rng.uniform(0,1) < 0.5 else "prosocial"
-			self.w_o = 0 if self.orientation=="proself" else self.rng.uniform(0.2, 0.3)
-			self.w_i = 0 if self.orientation=="proself" else self.rng.uniform(0.2, 0.3)
+			self.w_o = 0 if self.orientation=="proself" else self.rng.uniform(0, 0.5)
+			self.w_i = 0 if self.orientation=="proself" else self.rng.uniform(0, 0.5)
 			self.epsilon_decay = epsilon_decay
 		else:
 			self.gamma = gamma

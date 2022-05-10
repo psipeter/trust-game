@@ -223,8 +223,8 @@ def similarity_metric(agents, games=3, test="mean"):
 	human_data = human_data_raw.query("game in @final_games")
 	for agent in agents:
 		if agent=="TQ": agent_data_raw = pd.read_pickle("agent_data/TQ_N=100_games=200_svo.pkl")
-		if agent=="DQN": agent_data_raw = pd.read_pickle(f'agent_data/DQN_N=300_games=400_svo.pkl')
-		if agent=="IBL": agent_data_raw = pd.read_pickle(f'agent_data/IBL_N=300_games=200_svo.pkl')
+		if agent=="DQN": agent_data_raw = pd.read_pickle(f'agent_data/DQN_N=250_games=400_svo.pkl')
+		if agent=="IBL": agent_data_raw = pd.read_pickle(f'agent_data/IBL_N=250_games=200_svo.pkl')
 		last_game = agent_data_raw['game'].unique().max()
 		final_games = np.arange(last_game-(games-1), last_game+1)
 		agent_data = agent_data_raw.query("game in @final_games")
