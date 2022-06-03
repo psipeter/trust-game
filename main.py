@@ -40,15 +40,20 @@ load = False
 # baseline(agent="TQ", N=3, games=200, seed=0, load=load)
 # baseline(agent="DQN", N=300, games=1000, seed=0, load=load)
 # baseline(agent="IBL", N=5, games=150, seed=0, load=load)
-# baseline(agent="SPA", N=1, games=200, seed=0, load=load)
+baseline(agent="SPA", N=1, games=200, seed=0, load=load)
 
 # svo(agent="TQ", N=100, games=200, seed=0)
-# svo(agent="DQN", N=300, games=400, seed=0, load=load)
-# svo(agent="IBL", N=300, games=200, seed=0, load=load)
-svo(agent="SPA", N=1, games=200, seed=0, load=load)
+# svo(agent="DQN", N=250, games=400, seed=0, load=load)
+# svo(agent="IBL", N=30, games=200, seed=0, load=load)
+# svo(agent="SPA", N=1, games=100, seed=0, load=load)
 
-# agents = ['DQN', "IBL"]
-# similarity_metric(agents, test="5x5")
+# agents = ['Human', 'DQN', 'IBL']
+# t_test_generosity(agents)
+# t_test_defect(agents)
+# ks_test_svo(agents)
+# ks_test_gen_dist_similarity_with_human_data_by_svo(agents, test="KS")
+
+
 # compare_final_generosities(agents=agents)
 # compare_defectors(agents=agents)
 # compare_convergence(agents=agents)

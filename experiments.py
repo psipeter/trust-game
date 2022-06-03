@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import pandas as pd
+import time
 from utils import *
 from plots import *
 from fixed_agents import *
@@ -26,6 +27,7 @@ class Game():
 def play_game(game, investor, trustee):
 	assert investor.player == 'investor' and trustee.player == 'trustee', \
 		f"invalid player assignments {investor.player, trustee.player}"
+	start_time = time.time()
 	investor.new_game(game)
 	trustee.new_game(game)
 	for t in range(game.turns):
@@ -47,6 +49,8 @@ def play_game(game, investor, trustee):
 			t_give, t_keep = trustee.move(game)
 		investor.learn(game)
 		trustee.learn(game)
+	end_time = time.time()
+	print(f"execution time: {end_time-start_time:.3}")
 
 def game_loop(investor, trustee, agent, g, dfs):
 	columns = ('ID', 'opponent', 'player', 'game', 'turn', 'generosity', 'coins', 'orientation', 'gamma')
@@ -67,7 +71,7 @@ def train(investors, trustees, player, games):
 		print(f"{agent.ID} vs {opponents[0].ID}")
 		agent.reinitialize(player=player)
 		for g in range(games):
-			# print(f"game {g}")
+			print(f"game {g}")
 			if player=='investor':
 				dfs = game_loop(agent, trustees[g], agent, g=g, dfs=dfs)
 			elif player=='trustee':
@@ -100,7 +104,7 @@ def baseline(agent, N=10, games=100, seed=0, load=False):
 		gift_investor = [benchmark('investor', 'gift') for _ in range(games)]
 		attrition_trustee = [benchmark('trustee', 'attrition') for _ in range(games)]
 		attrition_investor = [benchmark('investor', 'attrition') for _ in range(games)]
-		# dfs.append(train(learners, cooperate_trustee, 'investor', games))
+		dfs.append(train(learners, cooperate_trustee, 'investor', games))
 		dfs.append(train(cooperate_investor, learners, 'trustee', games))
 		# dfs.append(train(learners, defect_trustee, 'investor', games))
 		# dfs.append(train(defect_investor, learners, 'trustee', games))

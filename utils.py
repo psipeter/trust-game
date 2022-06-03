@@ -5,7 +5,7 @@ import torch
 import nengo
 from scipy.stats import entropy, skew, kurtosis, normaltest
 
-def get_state(player, game, agent, dim=0, turn_basis=None, coin_basis=None, representation="one-hot"):
+def get_state(player, game, agent, dim=0, turn_basis=None, coin_basis=None, turn_exp=None, coin_exp=None, representation="one-hot"):
 	t = len(game.investor_give) if player=='investor' else len(game.trustee_give)
 	if agent=='TQ':
 		index = t if player=='investor' else t * (game.coins*game.match+1) + game.investor_give[-1]*game.match
@@ -28,7 +28,7 @@ def get_state(player, game, agent, dim=0, turn_basis=None, coin_basis=None, repr
 	if agent=="SPA":
 		if representation=="ssp":
 			c = game.coins if player=='investor' else game.investor_give[-1]*game.match
-			vector = encode_state(t, c, turn_basis, coin_basis) if t<5 else np.zeros((dim))
+			vector = encode_state(t, c, turn_basis, coin_basis, turn_exp, coin_exp) if t<5 else np.zeros((dim))
 			return vector
 
 def action_to_coins(player, state, n_actions, game):

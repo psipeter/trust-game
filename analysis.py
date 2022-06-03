@@ -214,67 +214,192 @@ def KS_similarity_metric(agents):
 # 			print(f"For {orientation_human} humans, prosocial agents are better fits in {prosocial_agent_is_better_match}/{n_conditions} conditions")
 
 
-def similarity_metric(agents, games=3, test="mean"):
+# def similarity_metric(agents, games=3, test="mean"):
+# 	dfs = []
+# 	columns = ('agent', 'condition', 'player', 'opponent', 'orientation_human', 'orientation_agent', 'turn', 'metric')
+# 	human_data_raw = pd.read_pickle("human_data/human_data.pkl")
+# 	last_game = human_data_raw['game'].unique().max()
+# 	final_games = np.arange(last_game-(games-1), last_game+1)
+# 	human_data = human_data_raw.query("game in @final_games")
+# 	for agent in agents:
+# 		if agent=="Human": continue
+# 		if agent=="TQ": agent_data_raw = pd.read_pickle("agent_data/TQ_N=100_games=200_svo.pkl")
+# 		if agent=="DQN": agent_data_raw = pd.read_pickle(f'agent_data/DQN_N=250_games=400_svo.pkl')
+# 		if agent=="IBL": agent_data_raw = pd.read_pickle(f'agent_data/IBL_N=30_games=200_svo.pkl')
+# 		last_game = agent_data_raw['game'].unique().max()
+# 		final_games = np.arange(last_game-(games-1), last_game+1)
+# 		agent_data = agent_data_raw.query("game in @final_games")
+# 		for player in ["investor", "trustee"]:
+# 			for opponent in ["greedy", "generous"]:
+# 				condition = f"{player} vs {opponent}"
+# 				for orientation_human in ["proself", "prosocial"]:
+# 					for orientation_agent in ["proself", "prosocial"]:
+# 						for turn in range(5):
+# 							human_gens = human_data.query("player==@player & opponent==@opponent & orientation==@orientation_human & turn==@turn").dropna()['generosity'].to_numpy()
+# 							agent_gens = agent_data.query("player==@player & opponent==@opponent & orientation==@orientation_agent & turn==@turn").dropna()['generosity'].to_numpy()
+# 							if test == "median":
+# 								metric = np.abs(np.median(human_gens) - np.median(agent_gens))
+# 							if test == "mean":
+# 								metric = np.abs(np.mean(human_gens) - np.mean(agent_gens))
+# 							if test == "KS":
+# 								metric = ks_2samp(human_gens, agent_gens)[0]
+# 							if test == "JS":
+# 								human_histogram = histogram(human_gens, min=0, max=1, bins=5) / len(human_gens)
+# 								agent_histogram = histogram(agent_gens, min=0, max=1, bins=5) / len(agent_gens)
+# 								metric = jensenshannon(human_histogram, agent_histogram)
+# 							if test == "5x5":
+# 								human_histogram = histogram(human_gens, min=0, max=1, bins=5) / len(human_gens)
+# 								agent_histogram = histogram(agent_gens, min=0, max=1, bins=5) / len(agent_gens)
+# 								metric = 0
+# 								for gen_bin in range(len(human_histogram)):
+# 									metric += np.abs(human_histogram[gen_bin] - agent_histogram[gen_bin])
+# 							dfs.append(pd.DataFrame([[agent, condition, player, opponent, orientation_human, orientation_agent, turn, 1-metric]], columns=columns))
+# 	data = pd.concat(dfs, ignore_index=True)
+# 	with pd.option_context('display.max_rows', None):
+# 		print(data)
+
+# 	fig, axes = plt.subplots(nrows=1, ncols=4, figsize=((7, 1.5)), sharey=True, sharex=True)
+# 	sns.barplot(data=data.query("condition=='investor vs greedy'"), x='orientation_human', y='metric', hue='orientation_agent', ax=axes[0])
+# 	sns.barplot(data=data.query("condition=='investor vs generous'"), x='orientation_human', y='metric', hue='orientation_agent', ax=axes[1])
+# 	sns.barplot(data=data.query("condition=='trustee vs greedy'"), x='orientation_human', y='metric', hue='orientation_agent', ax=axes[2])
+# 	sns.barplot(data=data.query("condition=='trustee vs generous'"), x='orientation_human', y='metric', hue='orientation_agent', ax=axes[3])
+# 	axes[0].set(xlabel=None, ylabel="similarity to\nhuman data", title='investor vs greedy')
+# 	axes[1].set(xlabel=None, ylabel=None, title='investor vs generous')
+# 	axes[2].set(xlabel=None, ylabel=None, title='trustee vs greedy')
+# 	axes[3].set(xlabel=None, ylabel=None, title='trustee vs generous')
+# 	axes[1].get_legend().remove()
+# 	axes[2].get_legend().remove()
+# 	axes[3].get_legend().remove()
+# 	plt.tight_layout()
+# 	fig.savefig(f"plots/similarity_t_test.pdf", bbox_inches="tight", pad_inches=0.01)
+
+# 	for orientation_human in ["proself", "prosocial"]:
+# 		proself_agent_better = 0
+# 		proself_agent_better_conditions = []
+# 		prosocial_agent_better = 0
+# 		prosocial_agent_better_conditions = []
+# 		for player in ["investor", "trustee"]:
+# 			for opponent in ["greedy", "generous"]:
+# 				for agent in agents:
+# 					proself_query = "player==@player & opponent==@opponent & orientation_human==@orientation_human & agent==@agent & orientation_agent=='proself'"
+# 					prosocial_query = "player==@player & opponent==@opponent & orientation_human==@orientation_human & agent==@agent & orientation_agent=='prosocial'"
+# 					proself_metric = 0
+# 					prosocial_metric = 0
+# 					for turn in range(5):
+# 						proself_metric += data.query(proself_query+f" & turn==@turn")['metric'].to_numpy()
+# 						prosocial_metric += data.query(prosocial_query+f" & turn==@turn")['metric'].to_numpy()
+# 					if proself_metric > prosocial_metric:
+# 						proself_agent_better += 1
+# 						proself_agent_better_conditions.append(f"{agent} as {player} vs {opponent}")
+# 					else:
+# 						prosocial_agent_better += 1
+# 						prosocial_agent_better_conditions.append(f"{agent} as {player} vs {opponent}")
+# 		n_conditions = proself_agent_better + prosocial_agent_better
+# 		if orientation_human=="proself":
+# 			print(f"For {orientation_human} humans, proself agents are better fits in {proself_agent_better}/{n_conditions} conditions")
+# 			# print(proself_agent_better_conditions)
+# 		else:
+# 			print(f"For {orientation_human} humans, prosocial agents are better fits in {prosocial_agent_better}/{n_conditions} conditions")
+# 			# print(prosocial_agent_better_conditions)
+
+
+def t_test_generosity(agents, games=3):
 	dfs = []
-	columns = ('agent', 'player', 'opponent', 'orientation_human', 'orientation_agent', 'turn', 'metric')
+	columns = ('agent', 'ID', 'player', 'opponent', 'orientation', 'game', 'sim_final')
+	for agent in agents:
+		if agent=="Human": data = pd.read_pickle("human_data/human_data.pkl")
+		if agent=="DQN": data = pd.read_pickle(f'agent_data/DQN_N=250_games=400_svo.pkl')
+		if agent=="IBL": data = pd.read_pickle(f'agent_data/IBL_N=250_games=200_svo.pkl')
+		last_game = data['game'].unique().max()
+		final_games = np.arange(last_game-(games-1), last_game+1)
+		proself_generosities = data.query("orientation=='proself' & game in @final_games").dropna()['generosity'].to_numpy()
+		prosocial_generosities = data.query("orientation=='prosocial' & game in @final_games").dropna()['generosity'].to_numpy()
+		stat, p = ttest_ind(prosocial_generosities, proself_generosities)
+		print(f"{agent}, mean of proself generosities different than mean of prosocial generosities")
+		print(f"dG={np.mean(proself_generosities) - np.mean(prosocial_generosities)}, stat={stat:.5}, p={p:.5}")
+
+def t_test_defect(agents, games=3, thr_defect=0.2):
+	dfs = []
+	columns = ('agent', 'ID', 'player', 'opponent', 'orientation', 'game', 'sim_final')
+	for agent in agents:
+		if agent=="Human": data = pd.read_pickle("human_data/human_data.pkl")
+		if agent=="DQN": data = pd.read_pickle(f'agent_data/DQN_N=250_games=400_svo.pkl')
+		if agent=="IBL": data = pd.read_pickle(f'agent_data/IBL_N=250_games=200_svo.pkl')
+		last_game = data['game'].unique().max()
+		final_games = np.arange(last_game-(games-1), last_game+1)
+		individuals = data['ID'].unique()
+		proself_defect_probs = []
+		prosocial_defect_probs = []
+		for ID in individuals:
+			proself_generosities = data.query("ID==@ID & orientation=='proself' & player=='trustee' & turn==4 & game in @final_games").dropna()['generosity'].to_numpy()
+			prosocial_generosities = data.query("ID==@ID & orientation=='prosocial' & player=='trustee' & turn==4 & game in @final_games").dropna()['generosity'].to_numpy()
+			if len(proself_generosities)>0:
+				n_defects = len(np.where(proself_generosities<0.2)[0])
+				prob = n_defects / len(proself_generosities)
+				proself_defect_probs.append(prob)
+			if len(prosocial_generosities)>0:
+				n_defects = len(np.where(prosocial_generosities<0.2)[0])
+				prob = n_defects / len(prosocial_generosities)
+				prosocial_defect_probs.append(prob)
+		# print(proself_defect_probs)
+		# print(prosocial_defect_probs)
+		stat, p = ttest_ind(prosocial_defect_probs, proself_defect_probs)
+		print(f"{agent}, mean of proself defection probability different than mean of prosocial defection probability")
+		print(f"dP={np.mean(proself_defect_probs) - np.mean(prosocial_defect_probs)}, stat={stat:.5}, p={p:.5}")
+
+def ks_test_svo(agents, games=3, test="mean"):
+	for agent in agents:
+		if agent=="Human": data = pd.read_pickle("human_data/human_data.pkl")
+		if agent=="DQN": data = pd.read_pickle(f'agent_data/DQN_N=250_games=400_svo.pkl')
+		if agent=="IBL": data = pd.read_pickle(f'agent_data/IBL_N=250_games=200_svo.pkl')
+		last_game = data['game'].unique().max()
+		final_games = np.arange(last_game-(games-1), last_game+1)
+		for player in ["investor", "trustee"]:
+			for opponent in ["greedy", "generous"]:
+				proself_gens = data.query("player==@player & opponent==@opponent & orientation=='proself' & game in @final_games").dropna()['generosity'].to_numpy()
+				prosocial_gens = data.query("player==@player & opponent==@opponent & orientation=='prosocial' & game in @final_games").dropna()['generosity'].to_numpy()
+				stat, p = ks_2samp(proself_gens, prosocial_gens)
+				print(f"{agent}, {player}, {opponent}, proself vs prosocial gens KS test: stat={stat:.5}, p={p:.5}")
+
+def ks_test_gen_dist_similarity_with_human_data_by_svo(agents, games=3, test="KS"):
+	dfs = []
+	columns = ('agent', 'condition', 'player', 'opponent', 'orientation_human', 'orientation_agent', 'metric')
 	human_data_raw = pd.read_pickle("human_data/human_data.pkl")
 	last_game = human_data_raw['game'].unique().max()
 	final_games = np.arange(last_game-(games-1), last_game+1)
 	human_data = human_data_raw.query("game in @final_games")
 	for agent in agents:
+		if agent=="Human": continue
 		if agent=="TQ": agent_data_raw = pd.read_pickle("agent_data/TQ_N=100_games=200_svo.pkl")
 		if agent=="DQN": agent_data_raw = pd.read_pickle(f'agent_data/DQN_N=250_games=400_svo.pkl')
-		if agent=="IBL": agent_data_raw = pd.read_pickle(f'agent_data/IBL_N=250_games=200_svo.pkl')
+		if agent=="IBL": agent_data_raw = pd.read_pickle(f'agent_data/IBL_N=30_games=200_svo.pkl')
 		last_game = agent_data_raw['game'].unique().max()
 		final_games = np.arange(last_game-(games-1), last_game+1)
 		agent_data = agent_data_raw.query("game in @final_games")
 		for player in ["investor", "trustee"]:
 			for opponent in ["greedy", "generous"]:
+				condition = f"{player} vs {opponent}"
 				for orientation_human in ["proself", "prosocial"]:
 					for orientation_agent in ["proself", "prosocial"]:
-						for turn in range(5):
-							human_gens = human_data.query("player==@player & opponent==@opponent & orientation==@orientation_human & turn==@turn").dropna()['generosity'].to_numpy()
-							agent_gens = agent_data.query("player==@player & opponent==@opponent & orientation==@orientation_agent & turn==@turn").dropna()['generosity'].to_numpy()
-							if test == "median":
-								metric = np.abs(np.median(human_gens) - np.median(agent_gens))
-							if test == "mean":
-								metric = np.abs(np.mean(human_gens) - np.mean(agent_gens))
-							if test == "KS":
-								metric = ks_2samp(human_gens, agent_gens)[0]
-							if test == "JS":
-								human_histogram = histogram(human_gens, min=0, max=1, bins=5) / len(human_gens)
-								agent_histogram = histogram(agent_gens, min=0, max=1, bins=5) / len(agent_gens)
-								metric = jensenshannon(human_histogram, agent_histogram)
-							if test == "5x5":
-								human_histogram = histogram(human_gens, min=0, max=1, bins=5) / len(human_gens)
-								agent_histogram = histogram(agent_gens, min=0, max=1, bins=5) / len(agent_gens)
-								metric = 0
-								for gen_bin in range(len(human_histogram)):
-									metric += np.abs(human_histogram[gen_bin] - agent_histogram[gen_bin])
-							dfs.append(pd.DataFrame([[agent, player, opponent, orientation_human, orientation_agent, turn, metric]], columns=columns))
+						human_gens = human_data.query("player==@player & opponent==@opponent & orientation==@orientation_human").dropna()['generosity'].to_numpy()
+						agent_gens = agent_data.query("player==@player & opponent==@opponent & orientation==@orientation_agent").dropna()['generosity'].to_numpy()
+						if test == "median":
+							metric = np.abs(np.median(human_gens) - np.median(agent_gens))
+						if test == "mean":
+							metric = np.abs(np.mean(human_gens) - np.mean(agent_gens))
+						if test == "KS":
+							metric = ks_2samp(human_gens, agent_gens)[0]
+						if test == "JS":
+							human_histogram = histogram(human_gens, min=0, max=1, bins=5) / len(human_gens)
+							agent_histogram = histogram(agent_gens, min=0, max=1, bins=5) / len(agent_gens)
+							metric = jensenshannon(human_histogram, agent_histogram)
+						if test == "5x5":
+							human_histogram = histogram(human_gens, min=0, max=1, bins=5) / len(human_gens)
+							agent_histogram = histogram(agent_gens, min=0, max=1, bins=5) / len(agent_gens)
+							metric = 0
+							for gen_bin in range(len(human_histogram)):
+								metric += np.abs(human_histogram[gen_bin] - agent_histogram[gen_bin])
+						dfs.append(pd.DataFrame([[agent, condition, player, opponent, orientation_human, orientation_agent, 1-metric]], columns=columns))
 	data = pd.concat(dfs, ignore_index=True)
 	with pd.option_context('display.max_rows', None):
 		print(data)
-
-	for orientation_human in ["proself", "prosocial"]:
-		proself_agent_is_better_match = 0
-		prosocial_agent_is_better_match = 0
-		for player in ["investor", "trustee"]:
-			for opponent in ["greedy", "generous"]:
-				for agent in agents:
-					proself_query = "player==@player & opponent==@opponent & orientation_human==@orientation_human & agent==@agent & orientation_agent=='proself'"
-					prosocial_query = "player==@player & opponent==@opponent & orientation_human==@orientation_human & agent==@agent & orientation_agent=='prosocial'"
-					proself_metric = 0
-					prosocial_metric = 0
-					for turn in range(5):
-						proself_metric += data.query(proself_query+f" & turn==@turn")['metric'].to_numpy()
-						prosocial_metric += data.query(prosocial_query+f" & turn==@turn")['metric'].to_numpy()
-					if proself_metric < prosocial_metric:
-						proself_agent_is_better_match += 1
-					else:
-						prosocial_agent_is_better_match += 1
-		n_conditions = proself_agent_is_better_match + prosocial_agent_is_better_match
-		if orientation_human=="proself":
-			print(f"For {orientation_human} humans, proself agents are better fits in {proself_agent_is_better_match}/{n_conditions} conditions")
-		else:
-			print(f"For {orientation_human} humans, prosocial agents are better fits in {prosocial_agent_is_better_match}/{n_conditions} conditions")

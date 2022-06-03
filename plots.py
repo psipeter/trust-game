@@ -69,7 +69,7 @@ def plot_final_generosities_svo(data, agent, games=3, turn=True):
 def compare_final_generosities(agents=['Human'], games=3):
 	fmt = '%.0f%%'
 	yticks = mtick.FormatStrFormatter(fmt)
-	fig, axes = plt.subplots(nrows=2, ncols=4, figsize=((7,4)), sharey=True, sharex=True)
+	fig, axes = plt.subplots(nrows=2, ncols=4, figsize=((7,3)), sharey=False, sharex=True)
 	for agent in agents:
 		if agent=="Random": continue
 		if agent=="Human":
@@ -78,12 +78,12 @@ def compare_final_generosities(agents=['Human'], games=3):
 			lw = 0.1
 			color = 'k'
 		if agent=="DQN":
-			data = pd.read_pickle(f'agent_data/DQN_N=300_games=400_svo.pkl')
+			data = pd.read_pickle(f'agent_data/DQN_N=250_games=400_svo.pkl')
 			fill = False
 			lw = 2
 			color = palette[0]
 		if agent=="IBL":
-			data = pd.read_pickle(f'agent_data/IBL_N=300_games=200_svo.pkl')
+			data = pd.read_pickle(f'agent_data/IBL_N=250_games=200_svo.pkl')
 			fill = False
 			lw = 2
 			color = palette[1]
@@ -101,17 +101,19 @@ def compare_final_generosities(agents=['Human'], games=3):
 					subdata = data.query(query_string)
 					sns.histplot(data=subdata, x='generosity', stat="percent", color=color, label=agent, ax=axes[i][2*j+k],
 						fill=fill, lw=lw, element="poly", binwidth=0.1, binrange=[0,1])
-					axes[i][2*j+k].set(xticks=((0,1)), yticks=((0, 100)))
+					axes[i][2*j+k].set(xticks=((0,1)), yticks=(()))
 					if i==0: axes[i][2*j+k].set(title=f"{player} vs {opponent}")
+					if 2*j+k > 0: axes[i][2*j+k].set(ylabel=None)
 	axes[0][0].legend()
-	axes[0][0].set(ylabel="proself")
-	axes[1][0].set(ylabel="prosocial")
+	axes[0][0].set(ylabel="proself\npercent")
+	axes[1][0].set(ylabel="prosocial\npercent")
 	axes[0][0].yaxis.set_major_formatter(yticks)
 	axes[0][1].yaxis.set_major_formatter(yticks)
 	plt.tight_layout()
-	fig.savefig(f"plots/compare_final_generosities.pdf", bbox_inches="tight", pad_inches=0)
+	fig.savefig(f"plots/compare_final_generosities.svg", bbox_inches="tight", pad_inches=0.01)
+	fig.savefig(f"plots/compare_final_generosities.pdf", bbox_inches="tight", pad_inches=0.01)
 
-def compare_convergence(agents=['Human'], load=False, save=True, last_n_games=3, metric='KS'):
+def compare_convergence(agents=['Human'], load=True, save=True, last_n_games=3, metric='KS'):
 	if not load:
 		dfs = []
 		columns = ('agent', 'ID', 'player', 'opponent', 'orientation', 'game', 'sim_final')
@@ -152,7 +154,7 @@ def compare_convergence(agents=['Human'], load=False, save=True, last_n_games=3,
 	else:
 		data = pd.read_pickle(f"analysis_data/convergence.pkl")
 
-	fig, axes = plt.subplots(nrows=2, ncols=4, figsize=((7,4)), sharey=True, sharex=True)
+	fig, axes = plt.subplots(nrows=2, ncols=4, figsize=((7,3)), sharey=True, sharex=True)
 	for agent in ["Human", "TQ", "DQN", "IBL", "Random"]:
 		if agent=="Human": color = 'k'
 		if agent=="DQN": color = palette[0]
@@ -176,10 +178,11 @@ def compare_convergence(agents=['Human'], load=False, save=True, last_n_games=3,
 	axes[1][1].get_legend().remove()
 	axes[1][2].get_legend().remove()
 	axes[1][3].get_legend().remove()
-	axes[0][0].set(ylabel="proself\nsimilarity to final gen.")
-	axes[1][0].set(ylabel="prosocial\nsimilarity to final gen.")
+	axes[0][0].set(ylabel="proself\nsimilarity to\nfinal gen.")
+	axes[1][0].set(ylabel="prosocial\nsimilarity to\nfinal gen.")
 	plt.tight_layout()
-	fig.savefig(f"plots/compare_convergence.pdf", bbox_inches="tight", pad_inches=0)
+	fig.savefig(f"plots/compare_convergence.svg", bbox_inches="tight", pad_inches=0.01)
+	fig.savefig(f"plots/compare_convergence.pdf", bbox_inches="tight", pad_inches=0.01)
 
 
 def compare_defectors(agents=['Human'], load=True, save=True, last_n_games=3, thr_defect=0.2):
